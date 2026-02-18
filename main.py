@@ -64,7 +64,12 @@ def process_issue(issue_number: int, dashboard_callback=None):
         task_callback=dashboard_callback,
     )
 
-    result = crew.kickoff()
+    try:
+        result = crew.kickoff()
+    except Exception as e:
+        from usage_tracking import send_discord_run_failed
+        send_discord_run_failed(issue_number, str(e))
+        raise
 
     print(f"\n{'='*50}")
     print(f"[Done] Issue #{issue_number}")
@@ -85,7 +90,12 @@ def watch_new_issues(interval_seconds: int = 300, process_fn=None):
             "예: GITHUB_REPO=owner/repo 형식으로 설정하세요."
         )
     g = Github(auth=Auth.Token(token)) if token else Github()
-    repo = g.get_repo(repo_name.strip())
+    try:
+        repo = g.get_repo(repo_name.strip())
+    except Exception as e:
+        print(f"[오류] 레포지토리 접근 실패: {repo_name.strip()}")
+        print(f"       {e}")
+        raise
 
     print(f"Issue watch started (every {interval_seconds}s)")
     print(f"   저장소: {os.getenv('GITHUB_REPO')}")
@@ -93,7 +103,8 @@ def watch_new_issues(interval_seconds: int = 300, process_fn=None):
 
     while True:
         try:
-            issues = repo.get_issues(state="open", labels=["agent-todo"])
+            issues = list(repo.get_issues(state="open", labels=["agent-todo"]))
+            new_count = sum(1 for i in issues if i.number not in processed_issues)
 
             for issue in issues:
                 if issue.number not in processed_issues:
@@ -111,15 +122,15 @@ def watch_new_issues(interval_seconds: int = 300, process_fn=None):
                     except Exception:
                         pass
 
-            print(f"Waiting {interval_seconds}s... (done: {len(processed_issues)})")
+            print(f"이슈 조회: {len(issues)}건 (신규 {new_count}건) — {interval_seconds}초 후 재조회 (누적 처리: {len(processed_issues)})")
             time.sleep(interval_seconds)
 
         except KeyboardInterrupt:
             print("\nWatch stopped.")
             break
         except Exception as e:
-            print(f"Error: {e}")
-            print(f"   {interval_seconds}초 후 재시도...")
+            print(f"[오류] 이슈 조회 실패 (레포 접근 등): {e}")
+            print(f"       {interval_seconds}초 후 재시도...")
             time.sleep(interval_seconds)
 
 

@@ -123,6 +123,30 @@ def _estimate_cost(input_tokens: int, output_tokens: int) -> float:
     return (input_tokens / 1_000_000) * 2.5 + (output_tokens / 1_000_000) * 10.0
 
 
+def send_discord_run_failed(issue_number: int, error_message: str) -> None:
+    """이슈 처리 중 LLM/실행 실패 시 Discord 채널에 알림 전송. DISCORD_BOT_TOKEN, DISCORD_CHANNEL_ID 필요."""
+    try:
+        import requests
+    except ImportError:
+        return
+    token = os.getenv("DISCORD_BOT_TOKEN")
+    channel_id = os.getenv("DISCORD_CHANNEL_ID")
+    if not token or not channel_id:
+        return
+    body = f"❌ **이슈 #{issue_number} 처리 실패**\n{error_message[:1500]}"
+    if len(error_message) > 1500:
+        body += "..."
+    try:
+        requests.post(
+            f"https://discord.com/api/v10/channels/{channel_id}/messages",
+            headers={"Authorization": f"Bot {token}", "Content-Type": "application/json"},
+            json={"content": body},
+            timeout=10,
+        )
+    except Exception:
+        pass
+
+
 def _send_discord_alert(data: dict, token_limit: int | None, call_limit: int | None) -> None:
     """상한 초과 시 Discord 채널에 알림 1회 전송."""
     try:
