@@ -49,14 +49,19 @@ def get_limits_from_env() -> tuple[int | None, int | None]:
     return (t, c)
 
 
-def add_usage(input_tokens: int = 0, output_tokens: int = 0) -> None:
-    """호출당 토큰 사용량 누적. 1회 호출 = calls +1."""
+def add_usage(
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    increment_calls: bool = True,
+) -> None:
+    """토큰 사용량 누적. increment_calls=True이면 calls +1 (기본값)."""
     global _limit_exceeded_notified
     with _lock:
         data = _load()
         data["input_tokens"] = data.get("input_tokens", 0) + input_tokens
         data["output_tokens"] = data.get("output_tokens", 0) + output_tokens
-        data["calls"] = data.get("calls", 0) + 1
+        if increment_calls:
+            data["calls"] = data.get("calls", 0) + 1
         _save(data)
 
         token_limit, call_limit = get_limits_from_env()
@@ -86,7 +91,9 @@ def is_over_limit() -> bool:
 
 
 def get_usage() -> dict:
-    """대시보드/API용: 사용량·상한·초과 여부·비용 추정."""
+    """대시보드/API용: 사용량·상한·초과 여부·비용 추정.
+    calls = LLM 호출 시도 횟수 (before 훅에서 카운트. API 실패 시에도 1회로 집계됨).
+    """
     with _lock:
         data = _load()
     token_limit, call_limit = get_limits_from_env()

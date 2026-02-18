@@ -19,8 +19,25 @@ import os
 import threading
 from datetime import datetime, timezone
 
+from pathlib import Path
 from dotenv import load_dotenv
-load_dotenv()
+
+# 프로젝트 루트의 .env 로드 (실행 경로가 달라도 동일한 .env 사용)
+_env_path = Path(__file__).resolve().parent / ".env"
+load_dotenv(_env_path)
+
+# OpenAI API 키가 없으면 LLM 호출이 실패하고, OpenAI 콘솔 사용량도 0으로 남음
+def _check_llm_api_key():
+    key = os.getenv("OPENAI_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+    if not key or not str(key).strip():
+        print(
+            "[경고] OPENAI_API_KEY(또는 ANTHROPIC_API_KEY)가 설정되지 않았습니다. "
+            "LLM 호출이 실패하며 OpenAI 콘솔 사용량도 0으로 나올 수 있습니다. .env 파일과 실행 경로를 확인하세요."
+        )
+    else:
+        print("[LLM] API 키가 설정됨 (OpenAI 또는 Anthropic). 정상 호출 시 OpenAI 콘솔에 사용량이 집계됩니다.")
+
+_check_llm_api_key()
 
 from usage_hooks import register_usage_hooks
 register_usage_hooks()
@@ -40,27 +57,106 @@ from tasks.tasks import (
 processed_issues = set()
 
 
-def process_issue(issue_number: int, dashboard_callback=None):
-    """단일 이슈를 처리하는 크루 실행. dashboard_callback 있으면 태스크 완료 시 호출."""
-    feature_branch = f"feature/issue-{issue_number}"
+def _format_crew_result(result) -> str:
+    """크루 실행 결과를 사람이 읽기 쉬운 문자열로 변환. Final Answer가 도구 호출 객체면 요약만 반환."""
+    if result is None:
+        return "(결과 없음)"
+    if isinstance(result, str):
+        return result.strip() or "(빈 문자열)"
+    # CrewAI가 도구 호출 객체를 그대로 반환한 경우 (실제 도구 실행이 안 된 경우)
+    if isinstance(result, (list, tuple)):
+        tool_names = []
+        for item in result:
+            name = getattr(getattr(item, "function", None), "name", None) or getattr(item, "name", None)
+            if name:
+                tool_names.append(name)
+        if tool_names:
+            return (
+                "[도구 호출만 반환됨] 에이전트가 도구를 실행하지 않고 호출 목록만 반환했습니다. "
+                f"요청된 도구: {', '.join(tool_names)}. "
+                "CrewAI 버전 또는 LLM 응답 형식 이슈일 수 있습니다."
+            )
+    s = str(result)
+    if "ChatCompletionMessageToolCall" in s or "Function(arguments=" in s:
+        return (
+            "[도구 호출 객체가 반환됨] 최종 답변이 텍스트가 아니라 도구 호출 객체입니다. "
+            "실제로 get_github_issue, comment_github_issue 등이 실행되었는지 이슈/댓글에서 확인하세요."
+        )
+    return s
 
+
+def _get_repo():
+    """PyGithub repo 객체 반환 (댓글 검증용)."""
+    token = os.getenv("GITHUB_TOKEN")
+    repo_name = os.getenv("GITHUB_REPO")
+    g = Github(auth=Auth.Token(token)) if token else Github()
+    return g.get_repo(repo_name.strip())
+
+
+def _count_comments(repo, issue_number: int) -> int:
+    """이슈의 현재 댓글 수."""
+    try:
+        return repo.get_issue(issue_number).get_comments().totalCount
+    except Exception:
+        return -1
+
+
+def _force_comment(repo, issue_number: int, crew_result) -> None:
+    """에이전트가 댓글을 남기지 않았을 때, 오케스트레이션 코드가 직접 댓글을 작성한다."""
+    result_text = str(crew_result) if crew_result else ""
+    body = (
+        "## [자동 보정] 매니저 에이전트 분석 결과\n\n"
+        "> 에이전트가 `comment_github_issue` 도구를 실행하지 못해 오케스트레이션 코드가 대신 댓글을 남깁니다.\n\n"
+    )
+    if "ChatCompletionMessageToolCall" in result_text or "Function(arguments=" in result_text:
+        body += (
+            "에이전트가 도구 호출 목록만 반환하고 실제 실행에 실패했습니다.\n"
+            "이슈 분석·기술 스펙은 다음 실행에서 다시 시도됩니다.\n"
+        )
+    elif result_text.strip():
+        if len(result_text) > 3000:
+            result_text = result_text[:3000] + "\n\n... (이하 생략)"
+        body += result_text
+    else:
+        body += "에이전트 실행 결과가 비어 있습니다.\n"
+
+    try:
+        issue = repo.get_issue(issue_number)
+        issue.create_comment(body)
+        print(f"[보정] 이슈 #{issue_number}에 강제 댓글 작성 완료.")
+    except Exception as e:
+        print(f"[보정 실패] 이슈 #{issue_number} 강제 댓글 작성 실패: {e}")
+
+
+def process_issue(issue_number: int, dashboard_callback=None):
+    """단일 이슈를 처리하는 크루 실행. 완료 후 댓글이 실제로 달렸는지 검증하고, 누락 시 강제 작성한다."""
     print(f"\n{'='*50}")
     print(f"[Start] Issue #{issue_number}")
-    print(f"   브랜치: {feature_branch}")
     print(f"{'='*50}\n")
 
-    # 태스크 생성 (순서 중요: 매니저 → 개발 → QA)
+    # 매니저 툴 목록 출력
+    tool_names = [getattr(t, "name", type(t).__name__) for t in manager_agent.tools]
+    print(f"[매니저 툴] {tool_names}")
+
+    # 실행 전 댓글 수 기록
+    repo = _get_repo()
+    before_count = _count_comments(repo, issue_number)
+    print(f"[검증] 실행 전 댓글 수: {before_count}")
+
+    feature_branch = f"feature/issue-{issue_number}"
     tasks = [
         create_issue_analysis_task(issue_number),
         create_dev_task(issue_number, feature_branch),
         create_qa_task(issue_number, feature_branch),
     ]
+    agents = [manager_agent, dev_agent, qa_agent]
+    print("[매니저 → 개발 → QA] 실행 중...")
 
     crew = Crew(
-        agents=[manager_agent, dev_agent, qa_agent],
+        agents=agents,
         tasks=tasks,
         process=Process.sequential,
-        verbose=True,
+        verbose=False,
         task_callback=dashboard_callback,
     )
 
@@ -71,11 +167,26 @@ def process_issue(issue_number: int, dashboard_callback=None):
         send_discord_run_failed(issue_number, str(e))
         raise
 
-    print(f"\n{'='*50}")
-    print(f"[Done] Issue #{issue_number}")
+    readable = _format_crew_result(result)
+    print(f"\n[매니저] 완료.")
     print(f"{'='*50}")
-    print(result)
+    if len(readable) > 2000:
+        print(readable[:2000] + "\n... (이하 생략)")
+    else:
+        print(readable)
+    print(f"{'='*50}")
 
+    # 실행 후 댓글 수 검증
+    after_count = _count_comments(repo, issue_number)
+    print(f"[검증] 실행 후 댓글 수: {after_count}")
+
+    if after_count <= before_count:
+        print(f"[검증] 에이전트가 댓글을 남기지 않았습니다. 강제 댓글을 작성합니다.")
+        _force_comment(repo, issue_number, result)
+    else:
+        print(f"[검증] 댓글이 정상적으로 작성되었습니다. (+{after_count - before_count}개)")
+
+    print()
     return result
 
 
@@ -145,8 +256,9 @@ def run_dashboard(port: int = 3000, watch: bool = False, interval: int = 300):
     )
     from dashboard.server import app, register_runner
 
-    # 에이전트 목록은 고정 (매니저/개발/QA). 나중에 agents 리스트 확장 시 여기서 동적으로 가져오면 됨.
-    init_agents_from_crew([manager_agent, dev_agent, qa_agent])
+    # CREW_PM_ONLY면 매니저만, 아니면 매니저·개발·QA
+    agents_for_crew = [manager_agent, dev_agent, qa_agent]
+    init_agents_from_crew(agents_for_crew)
 
     task_index = [0]  # mutable for closure
 
@@ -169,7 +281,8 @@ def run_dashboard(port: int = 3000, watch: bool = False, interval: int = 300):
         set_run_started(issue_number, started)
         try:
             result = process_issue(issue_number, dashboard_callback=make_task_callback())
-            set_run_finished(str(result)[:500] if result else "완료")
+            summary = _format_crew_result(result)
+            set_run_finished(summary[:500] if len(summary) > 500 else summary)
         except Exception as e:
             set_run_finished(error=str(e)[:300])
 

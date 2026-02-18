@@ -29,7 +29,7 @@ def create_issue_analysis_task(issue_number: int) -> Task:
                - 사용할 언어·프레임워크·라이브러리 (이슈에 이미 적혀 있으면 따르고, 없으면 docs/skill·웹/프로젝트 맥락에 맞게 제안)
                - 구현 범위와 산출물 (어떤 파일/경로를 만들거나 수정할지)
                - API·UI·스크립트 등 형태와 컨벤션
-            6. 이슈에 분석 결과와 위 기술 스펙을 댓글로 남긴다.
+            6. 반드시 comment_github_issue 툴을 호출하여 이슈 #{issue_number}에 분석 결과와 기술 스펙 전체를 댓글로 남긴다. 댓글을 남기지 않으면 작업이 완료된 것이 아니다.
             7. (docs/issues 존재 시) 요약을 docs/issues/issue-{issue_number}.md 에 write_github_file로 남긴다.
         """,
         expected_output="""

@@ -32,31 +32,44 @@ except ImportError:
 
 
 def _before_llm_call(context):
-    """상한 초과 시 LLM 호출 차단."""
-    from usage_tracking import is_over_limit
+    """상한 초과 시 LLM 호출 차단. 입력 토큰 추적 + 로깅."""
+    from usage_tracking import is_over_limit, add_usage
     if is_over_limit():
         return False
-    return None
 
-
-def _after_llm_call(context):
-    """호출 후 입력/출력 토큰 집계."""
-    from usage_tracking import add_usage
+    input_tokens = 0
     try:
-        input_tokens = 0
-        for msg in (getattr(context, "messages", None) or []):
-            content = msg.get("content", "") if isinstance(msg, dict) else ""
+        messages = getattr(context, "messages", None) or []
+        for msg in messages:
+            content = msg.get("content", "") if isinstance(msg, dict) else getattr(msg, "content", "")
             if isinstance(content, str):
                 input_tokens += count_tokens(content)
             elif isinstance(content, list):
                 for part in content:
                     if isinstance(part, dict) and "text" in part:
                         input_tokens += count_tokens(part["text"])
-        output_tokens = count_tokens(getattr(context, "response", None) or "")
-        add_usage(input_tokens=input_tokens, output_tokens=output_tokens)
     except Exception:
-        add_usage(input_tokens=0, output_tokens=0)
+        pass
+
+    try:
+        add_usage(input_tokens, 0, increment_calls=True)
+    except Exception:
+        pass
+
+    agent_role = getattr(getattr(context, "agent", None), "role", "?")
+    iteration = getattr(context, "iterations", "?")
+    msg_count = len(getattr(context, "messages", None) or [])
+    print(f"  [LLM 호출] agent={agent_role}, iteration={iteration}, messages={msg_count}, input_tokens≈{input_tokens}")
     return None
+
+
+## after_llm_call 훅은 등록하지 않는다.
+## CrewAI 1.9.3의 _setup_after_llm_call_hooks 버그:
+##   훅이 하나라도 등록되어 있으면, LLM 응답(answer)을 str()로 변환한다.
+##   tool_calls(list)가 str이 되면 executor가 도구를 실행하지 못하고
+##   "Final Answer"로 처리해 버린다.
+## 토큰 추적은 before_llm_call에서 메시지 기반으로 하고,
+## 출력 토큰은 OpenAI 콘솔에서 확인한다.
 
 
 _hooks_registered = False
@@ -64,18 +77,14 @@ _hooks_lock = threading.Lock()
 
 
 def register_usage_hooks() -> None:
-    """CrewAI 전역 before/after LLM 훅 등록. 한 번만 호출."""
+    """CrewAI 전역 before LLM 훅만 등록. after 훅은 등록하지 않는다 (위 주석 참조)."""
     global _hooks_registered
     with _hooks_lock:
         if _hooks_registered:
             return
         try:
-            from crewai.hooks import (
-                register_before_llm_call_hook,
-                register_after_llm_call_hook,
-            )
+            from crewai.hooks import register_before_llm_call_hook
             register_before_llm_call_hook(_before_llm_call)
-            register_after_llm_call_hook(_after_llm_call)
             _hooks_registered = True
         except Exception:
             pass

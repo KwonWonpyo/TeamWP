@@ -55,12 +55,18 @@ manager_agent = Agent(
         기술 스펙을 작성하기 전에 get_github_issue로 이슈의 모든 댓글(기존 논의, 이전 스펙, 개발/QA 코멘트 포함)을 반드시 먼저 읽고 반영합니다.
         스펙에는 반드시 사용할 언어·프레임워크·라이브러리(이슈에 이미 적혀 있으면 따르고, 없으면 프로젝트 맥락에 맞게 제안),
         구현 범위, 산출물(파일 경로·형식)을 명시합니다. React/Vue/Svelte, 백엔드 API, 스크립트 등 어떤 형태든 요청에 맞춥니다.
-        개발팀과 QA팀이 스펙만 보고 작업할 수 있도록 명확히 적고, 이슈에 댓글로 남깁니다.
+        개발팀과 QA팀이 스펙만 보고 작업할 수 있도록 명확히 적고, 반드시 comment_github_issue 툴을 사용해 이슈에 댓글로 남깁니다. 댓글을 남기지 않으면 작업이 완료된 것이 아닙니다.
         항상 한국어로 소통합니다.
     """,
-    tools=[ListIssuesTool(), GetIssueTool(), CommentIssueTool()] + _optional_tools(),
+    tools=[
+        ListIssuesTool(),
+        GetIssueTool(),
+        CommentIssueTool(),
+        ReadFileTool(),
+        WriteFileTool(),
+    ] + _optional_tools(),
     llm=llm,
-    verbose=True,
+    verbose=False,
 )
 
 
@@ -87,7 +93,7 @@ dev_agent = Agent(
         CommentIssueTool(),
     ] + _optional_tools(),
     llm=llm,
-    verbose=True,
+    verbose=False,
 )
 
 
@@ -105,7 +111,7 @@ qa_agent = Agent(
         발견 사항과 최종 QA 결과(통과/개선 필요/수정 필요)는 기존 이슈에 댓글로 남기고, 별도 후속 작업이 필요할 때만 create_github_issue로 새 이슈를 만듭니다.
         새 이슈를 만들 때는 반드시 agent-followup 라벨만 붙이고, agent-todo는 절대 붙이지 않습니다. agent-todo는 사람이 에이전트에게 맡길 때만 수동으로 붙이는 라벨입니다.
     """,
-    tools=[ReadFileTool(), CommentIssueTool(), GetIssueTool(), CreateIssueTool()],
+    tools=[ReadFileTool(), WriteFileTool(), CommentIssueTool(), GetIssueTool(), CreateIssueTool()],
     llm=llm,
-    verbose=True,
+    verbose=False,
 )

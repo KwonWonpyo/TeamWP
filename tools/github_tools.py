@@ -120,14 +120,24 @@ class CommentIssueInput(BaseModel):
 
 class CommentIssueTool(BaseTool):
     name: str = "comment_github_issue"
-    description: str = "GitHub 이슈에 댓글을 추가합니다."
+    description: str = (
+        "GitHub 이슈에 댓글을 추가합니다. 매니저는 분석·기술 스펙을 반드시 이 툴로 이슈에 댓글 남겨야 합니다. "
+        "실패 시 에러 메시지가 반환되므로 그 내용을 확인하세요."
+    )
     args_schema: type[BaseModel] = CommentIssueInput
 
     def _run(self, issue_number: int, comment: str) -> str:
-        repo = get_github_client()
-        issue = repo.get_issue(issue_number)
-        issue.create_comment(comment)
-        return f"이슈 #{issue_number}에 댓글이 추가되었습니다."
+        try:
+            repo = get_github_client()
+            issue = repo.get_issue(issue_number)
+            issue.create_comment(comment)
+            return f"이슈 #{issue_number}에 댓글이 추가되었습니다."
+        except Exception as e:
+            err = str(e).strip()
+            return (
+                f"댓글 추가 실패 (이슈 #{issue_number}): {err}. "
+                "GITHUB_TOKEN 권한(repo 또는 write:discussion), 저장소 접근, 이슈 번호를 확인하세요."
+            )
 
 
 # ─────────────────────────────────────────────
@@ -140,13 +150,22 @@ class ReadFileInput(BaseModel):
 
 class ReadFileTool(BaseTool):
     name: str = "read_github_file"
-    description: str = "GitHub 저장소의 특정 파일 내용을 읽습니다."
+    description: str = (
+        "GitHub 저장소의 파일 또는 디렉터리를 읽습니다. "
+        "파일이면 내용을 반환하고, 디렉터리면 하위 파일/폴더 목록을 반환합니다."
+    )
     args_schema: type[BaseModel] = ReadFileInput
 
     def _run(self, file_path: str, branch: str = "main") -> str:
         repo = get_github_client()
         try:
             content = repo.get_contents(file_path, ref=branch)
+            if isinstance(content, list):
+                items = [
+                    f"{'[dir] ' if c.type == 'dir' else ''}{c.path}"
+                    for c in content
+                ]
+                return f"디렉터리 '{file_path}' 내 항목 ({len(items)}개):\n" + "\n".join(items)
             return content.decoded_content.decode("utf-8")
         except Exception as e:
             return f"파일을 찾을 수 없습니다: {file_path} ({e})"
