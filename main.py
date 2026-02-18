@@ -26,7 +26,7 @@ from usage_hooks import register_usage_hooks
 register_usage_hooks()
 
 from crewai import Crew, Process
-from github import Github
+from github import Auth, Github
 
 from agents.agents import manager_agent, dev_agent, qa_agent
 from tasks.tasks import (
@@ -77,8 +77,15 @@ def process_issue(issue_number: int, dashboard_callback=None):
 def watch_new_issues(interval_seconds: int = 300, process_fn=None):
     """새로운 GitHub 이슈를 주기적으로 감시. process_fn이 있으면 그걸로 이슈 처리 (대시보드 연동용)."""
     run_issue = process_fn or process_issue
-    g = Github(os.getenv("GITHUB_TOKEN"))
-    repo = g.get_repo(os.getenv("GITHUB_REPO"))
+    token = os.getenv("GITHUB_TOKEN")
+    repo_name = os.getenv("GITHUB_REPO")
+    if not repo_name or not repo_name.strip():
+        raise ValueError(
+            "GITHUB_REPO가 .env에 없거나 비어 있습니다. "
+            "예: GITHUB_REPO=owner/repo 형식으로 설정하세요."
+        )
+    g = Github(auth=Auth.Token(token)) if token else Github()
+    repo = g.get_repo(repo_name.strip())
 
     print(f"Issue watch started (every {interval_seconds}s)")
     print(f"   저장소: {os.getenv('GITHUB_REPO')}")
