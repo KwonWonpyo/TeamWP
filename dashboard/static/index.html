@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Team Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #1a1a2e;
+      --panel: #16213e;
+      --border: #0f3460;
+      --pixel: #e94560;
+      --text: #eaeaea;
+      --idle: #4a4a6a;
+      --working: #ffc107;
+      --done: #4caf50;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Press Start 2P', cursive;
+      font-size: 10px;
+      line-height: 1.6;
+      padding: 16px;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+    h1 {
+      font-size: 14px;
+      color: var(--pixel);
+      text-shadow: 2px 2px 0 var(--border);
+      margin-bottom: 16px;
+    }
+    .header {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 20px;
+      padding: 12px;
+      background: var(--panel);
+      border: 4px solid var(--border);
+      border-radius: 0;
+    }
+    .header .stat {
+      padding: 4px 8px;
+      background: var(--bg);
+      border: 2px solid var(--border);
+    }
+    .header .stat span { color: var(--pixel); }
+    .agents {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 1rem;
+      margin-bottom: 20px;
+    }
+    .agent-card {
+      background: var(--panel);
+      border: 4px solid var(--border);
+      padding: 12px;
+      text-align: center;
+      min-width: 0;
+    }
+    .agent-card.idle { border-color: var(--idle); }
+    .agent-card.working { border-color: var(--working); animation: blink 0.8s ease-in-out infinite; }
+    .agent-card.done { border-color: var(--done); }
+    @keyframes blink {
+      50% { opacity: 0.85; box-shadow: 0 0 12px var(--working); }
+    }
+    .agent-avatar {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 8px;
+      image-rendering: pixelated;
+      background: var(--bg);
+      border: 2px solid var(--border);
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      grid-template-rows: repeat(8, 1fr);
+    }
+    .agent-avatar .pixel { background: currentColor; }
+    .agent-avatar.manager .pixel { color: #6c5ce7; }
+    .agent-avatar.developer .pixel { color: #00b894; }
+    .agent-avatar.qa_engineer .pixel { color: #e17055; }
+    .agent-avatar.default .pixel { color: var(--pixel); }
+    .agent-name { font-size: 8px; margin-bottom: 6px; word-break: break-word; }
+    .agent-state {
+      font-size: 8px;
+      padding: 4px 6px;
+      display: inline-block;
+      border: 2px solid;
+    }
+    .agent-state.idle { color: var(--idle); border-color: var(--idle); }
+    .agent-state.working { color: var(--working); border-color: var(--working); }
+    .agent-state.done { color: var(--done); border-color: var(--done); }
+    .last-result {
+      padding: 12px;
+      background: var(--panel);
+      border: 4px solid var(--border);
+      font-size: 8px;
+      word-break: break-all;
+      max-height: 80px;
+      overflow-y: auto;
+    }
+    .last-result.empty { color: var(--idle); }
+    .run-form {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      align-self: center;
+      margin: 0;
+    }
+    .run-form input {
+      font-family: 'Press Start 2P', cursive;
+      font-size: 10px;
+      padding: 8px;
+      width: 80px;
+      background: var(--bg);
+      border: 2px solid var(--border);
+      color: var(--text);
+    }
+    .run-form button {
+      font-family: 'Press Start 2P', cursive;
+      font-size: 8px;
+      padding: 8px 12px;
+      background: var(--pixel);
+      color: var(--text);
+      border: 2px solid var(--border);
+      cursor: pointer;
+    }
+    .run-form button:hover { opacity: 0.9; }
+    .run-form button:disabled { opacity: 0.5; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <h1>AGENT TEAM DASHBOARD</h1>
+  <div class="header">
+    <div class="stat">RUN: <span id="run-status">대기 중</span></div>
+    <div class="stat">ISSUE: <span id="issue-num">-</span></div>
+    <div class="stat">DONE: <span id="processed-count">0</span></div>
+    <div class="run-form">
+      <input type="number" id="issue-input" placeholder="42" min="1">
+      <button type="button" id="run-btn">RUN</button>
+    </div>
+  </div>
+  <div class="agents" id="agents-container"></div>
+  <div class="last-result empty" id="last-result">-</div>
+
+  <script>
+    const POLL_MS = 60000;
+    const agentsEl = document.getElementById('agents-container');
+    const runStatusEl = document.getElementById('run-status');
+    const issueNumEl = document.getElementById('issue-num');
+    const processedCountEl = document.getElementById('processed-count');
+    const lastResultEl = document.getElementById('last-result');
+    const issueInputEl = document.getElementById('issue-input');
+    const runBtnEl = document.getElementById('run-btn');
+
+    function avatarClass(id) {
+      const k = (id || '').toLowerCase();
+      if (k.includes('manager')) return 'manager';
+      if (k.includes('developer') || k.includes('dev')) return 'developer';
+      if (k.includes('qa') || k.includes('engineer')) return 'qa_engineer';
+      return 'default';
+    }
+
+    function renderAgents(agents) {
+      if (!Array.isArray(agents) || agents.length === 0) {
+        agentsEl.innerHTML = '<p class="agent-name">No agents</p>';
+        return;
+      }
+      agentsEl.innerHTML = agents.map(a => {
+        const state = (a.state || 'idle').toLowerCase();
+        const ac = avatarClass(a.id);
+        return `
+          <div class="agent-card ${state}">
+            <div class="agent-avatar ${ac}" aria-hidden="true">
+              ${Array.from({ length: 64 }, (_, i) => {
+                const row = Math.floor(i / 8), col = i % 8;
+                const fill = (row >= 2 && row <= 5 && col >= 2 && col <= 5) || (row === 3 && (col === 2 || col === 5)) || (row === 4 && (col === 2 || col === 5)) || (row === 5 && col >= 2 && col <= 5);
+                return fill ? '<span class="pixel"></span>' : '<span></span>';
+              }).join('')}
+            </div>
+            <div class="agent-name">${escapeHtml(a.role || a.id)}</div>
+            <div class="agent-state ${state}">${state.toUpperCase()}</div>
+          </div>`;
+      }).join('');
+    }
+
+    function escapeHtml(s) {
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    function updateUI(data) {
+      renderAgents(data.agents || []);
+      runStatusEl.textContent = data.running ? 'RUNNING' : '대기 중';
+      const run = data.current_run;
+      issueNumEl.textContent = run ? '#' + run.issue_number : '-';
+      processedCountEl.textContent = String(data.processed_count ?? 0);
+      lastResultEl.textContent = data.last_result || '-';
+      lastResultEl.classList.toggle('empty', !data.last_result);
+      runBtnEl.disabled = !!data.running;
+    }
+
+    function poll() {
+      fetch('/api/status')
+        .then(r => r.json())
+        .then(updateUI)
+        .catch(() => { runStatusEl.textContent = 'ERR'; });
+    }
+
+    runBtnEl.addEventListener('click', () => {
+      const num = parseInt(issueInputEl.value, 10);
+      if (!num || num < 1) return;
+      runBtnEl.disabled = true;
+      fetch('/api/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ issue: num })
+      })
+        .then(r => r.ok ? poll() : r.json().then(d => alert(d.detail || 'Error')))
+        .catch(() => alert('Request failed'))
+        .finally(() => poll());
+    });
+
+    poll();
+    setInterval(poll, POLL_MS);
+  </script>
+</body>
+</html>

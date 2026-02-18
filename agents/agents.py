@@ -35,10 +35,10 @@ def _optional_tools():
     return extra
 
 # ─────────────────────────────────────────────
-# LLM 설정 (Claude 사용 예시)
-# Anthropic 대신 OpenAI를 쓰려면 "openai/gpt-4o"
+# LLM 설정 (.env의 OPENAI_API_KEY 사용)
+# Anthropic 쓰려면 "anthropic/claude-3-5-sonnet-20241022" + ANTHROPIC_API_KEY
 # ─────────────────────────────────────────────
-llm = LLM(model="anthropic/claude-3-5-sonnet-20241022")
+llm = LLM(model="openai/gpt-4o")
 
 
 # ─────────────────────────────────────────────
