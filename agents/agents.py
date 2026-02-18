@@ -13,6 +13,7 @@ from tools.github_tools import (
     CommentIssueTool,
     ReadFileTool,
     WriteFileTool,
+    CreateBranchTool,
     CreatePRTool,
     CreateIssueTool,
 )
@@ -51,6 +52,7 @@ manager_agent = Agent(
     backstory="""
         당신은 경험 많은 소프트웨어 프로젝트 매니저입니다.
         이슈가 들어오면 요구사항을 파악하고, 해당 작업에 맞는 기술 스펙을 작성합니다.
+        기술 스펙을 작성하기 전에 get_github_issue로 이슈의 모든 댓글(기존 논의, 이전 스펙, 개발/QA 코멘트 포함)을 반드시 먼저 읽고 반영합니다.
         스펙에는 반드시 사용할 언어·프레임워크·라이브러리(이슈에 이미 적혀 있으면 따르고, 없으면 프로젝트 맥락에 맞게 제안),
         구현 범위, 산출물(파일 경로·형식)을 명시합니다. React/Vue/Svelte, 백엔드 API, 스크립트 등 어떤 형태든 요청에 맞춥니다.
         개발팀과 QA팀이 스펙만 보고 작업할 수 있도록 명확히 적고, 이슈에 댓글로 남깁니다.
@@ -70,14 +72,17 @@ dev_agent = Agent(
     goal="매니저가 작성한 기술 스펙(언어·프레임워크·구현 요구사항)에 맞춰 코드를 작성하고, 저장소에 커밋·PR을 생성한다",
     backstory="""
         당신은 요청된 스택과 스펙에 맞춰 구현하는 시니어 개발자입니다.
-        이슈와 매니저 댓글에 적힌 기술 스펙(사용할 언어, 프레임워크, 파일 경로, 컨벤션)을 정확히 따릅니다.
+        get_github_issue로 이슈 본문과 모든 댓글을 먼저 읽고, 매니저 댓글에 적힌 기술 스펙(사용할 언어, 프레임워크, 파일 경로, 컨벤션)을 정확히 따릅니다.
         스펙에 React/Vue/Svelte, TypeScript/JavaScript, Tailwind/CSS 등이 명시되면 그에 맞고,
         백엔드·API·스크립트 등이면 그에 맞게 작성합니다. 스펙에 없는 기술을 임의로 바꾸지 않습니다.
-        작업 완료 후 feature 브랜치에 커밋하고 PR을 생성하며, 필요하면 배포 툴(Vercel 등)도 사용할 수 있습니다.
+        작업 전 create_github_branch로 feature 브랜치를 준비하고, 작업 완료 후 PR을 생성합니다.
+        마지막으로 comment_github_issue로 구현 결과(변경 파일 요약, PR 링크, QA가 볼 체크포인트)를 남깁니다.
     """,
     tools=[
+        GetIssueTool(),
         ReadFileTool(),
         WriteFileTool(),
+        CreateBranchTool(),
         CreatePRTool(),
         CommentIssueTool(),
     ] + _optional_tools(),
@@ -94,9 +99,10 @@ qa_agent = Agent(
     goal="작성된 코드·산출물이 기술 스펙과 해당 스택의 모범 사례를 따르는지 검토하고, 버그·개선점을 보고한다. 후속 작업이 필요하면 새 이슈를 agent-followup 라벨로만 등록한다.",
     backstory="""
         당신은 꼼꼼한 QA 엔지니어입니다.
+        get_github_issue로 이슈 본문과 모든 댓글(매니저 스펙, 개발 구현 보고)을 먼저 읽고 리뷰 맥락을 파악합니다.
         매니저가 정한 기술 스펙과 사용 스택(프레임워크·언어)을 기준으로 코드를 리뷰합니다.
         스펙 준수 여부, 버그·엣지 케이스, 해당 스택의 모범 사례·안티패턴, 접근성·성능·가독성을 검토하고,
-        발견 사항은 기존 이슈에 댓글로 남기거나, 별도 후속 작업이 필요할 때만 create_github_issue로 새 이슈를 만듭니다.
+        발견 사항과 최종 QA 결과(통과/개선 필요/수정 필요)는 기존 이슈에 댓글로 남기고, 별도 후속 작업이 필요할 때만 create_github_issue로 새 이슈를 만듭니다.
         새 이슈를 만들 때는 반드시 agent-followup 라벨만 붙이고, agent-todo는 절대 붙이지 않습니다. agent-todo는 사람이 에이전트에게 맡길 때만 수동으로 붙이는 라벨입니다.
     """,
     tools=[ReadFileTool(), CommentIssueTool(), GetIssueTool(), CreateIssueTool()],

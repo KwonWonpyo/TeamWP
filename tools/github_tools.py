@@ -65,7 +65,10 @@ class GetIssueTool(BaseTool):
     def _run(self, issue_number: int) -> str:
         repo = get_github_client()
         issue = repo.get_issue(issue_number)
-        comments = [c.body for c in issue.get_comments()]
+        comments = []
+        for c in issue.get_comments():
+            author = getattr(getattr(c, "user", None), "login", "unknown")
+            comments.append(f"[{author}] {c.body}")
 
         return f"""
 이슈 #{issue.number}: {issue.title}
@@ -79,6 +82,32 @@ class GetIssueTool(BaseTool):
 댓글 ({len(comments)}개):
 {chr(10).join(f'- {c}' for c in comments)}
 """
+
+
+# ─────────────────────────────────────────────
+# 브랜치 생성
+# ─────────────────────────────────────────────
+class CreateBranchInput(BaseModel):
+    new_branch: str = Field(description="생성할 브랜치명 (예: feature/issue-42)")
+    base_branch: str = Field(default="main", description="기준 브랜치명")
+
+
+class CreateBranchTool(BaseTool):
+    name: str = "create_github_branch"
+    description: str = "기준 브랜치에서 새 브랜치를 생성합니다. 이미 있으면 그대로 사용합니다."
+    args_schema: type[BaseModel] = CreateBranchInput
+
+    def _run(self, new_branch: str, base_branch: str = "main") -> str:
+        repo = get_github_client()
+        try:
+            repo.get_branch(new_branch)
+            return f"브랜치가 이미 존재합니다: {new_branch}"
+        except Exception:
+            pass
+
+        base = repo.get_branch(base_branch)
+        repo.create_git_ref(ref=f"refs/heads/{new_branch}", sha=base.commit.sha)
+        return f"브랜치 생성 완료: {new_branch} (base: {base_branch})"
 
 
 # ─────────────────────────────────────────────
