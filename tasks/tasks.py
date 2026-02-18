@@ -1,8 +1,8 @@
 """
 tasks/tasks.py
 
-각 에이전트가 수행할 태스크 정의
-태스크는 실행 시점에 이슈 정보를 받아 동적으로 생성됩니다.
+각 에이전트가 수행할 태스크 정의.
+태스크는 실행 시점에 이슈 정보를 받아 동적으로 생성되며, 특정 프레임워크가 아닌 스펙 기반으로 동작합니다.
 """
 
 from crewai import Task
@@ -10,20 +10,23 @@ from agents.agents import manager_agent, dev_agent, qa_agent
 
 
 def create_issue_analysis_task(issue_number: int) -> Task:
-    """매니저: 이슈 분석 및 작업 지시"""
+    """매니저: 이슈 분석 및 기술 스펙 작성 (스택·언어는 이슈/프로젝트에 맞게 결정)"""
     return Task(
         description=f"""
             GitHub 이슈 #{issue_number}을 분석하세요.
             
             수행할 작업:
-            1. get_github_issue 툴로 이슈 #{issue_number} 상세 내용을 읽는다
-            2. 이슈 유형을 파악한다 (신규 기능 / 버그 수정 / 개선)
-            3. 개발팀이 무엇을 만들어야 하는지 명확한 기술 스펙을 작성한다
-            4. 이슈에 분석 결과와 작업 계획을 댓글로 남긴다
+            1. get_github_issue 툴로 이슈 #{issue_number} 상세 내용을 읽는다.
+            2. 이슈 유형을 파악한다 (신규 기능 / 버그 수정 / 개선 / 기타).
+            3. 이 작업에 맞는 기술 스펙을 작성한다. 반드시 다음을 명시한다:
+               - 사용할 언어·프레임워크·라이브러리 (이슈에 이미 적혀 있으면 따르고, 없으면 웹/프로젝트 맥락에 맞게 제안)
+               - 구현 범위와 산출물 (어떤 파일/경로를 만들거나 수정할지)
+               - API·UI·스크립트 등 형태와 컨벤션
+            4. 이슈에 분석 결과와 위 기술 스펙을 댓글로 남긴다.
         """,
         expected_output="""
             - 이슈 유형과 요약
-            - 개발팀을 위한 기술 스펙 (컴포넌트명, Props, 주요 기능)
+            - 기술 스펙: 사용 스택(언어·프레임워크), 구현 범위, 산출물(파일·경로), 컨벤션
             - GitHub 이슈에 남긴 댓글 확인
         """,
         agent=manager_agent,
@@ -31,28 +34,24 @@ def create_issue_analysis_task(issue_number: int) -> Task:
 
 
 def create_dev_task(issue_number: int, feature_branch: str) -> Task:
-    """개발 에이전트: React 컴포넌트 작성 및 커밋"""
+    """개발 에이전트: 스펙에 맞는 구현 및 커밋·PR"""
     return Task(
         description=f"""
-            이슈 #{issue_number}에 대한 React 컴포넌트를 작성하세요.
+            이슈 #{issue_number}에 대한 구현을 하세요. 반드시 매니저가 댓글로 남긴 기술 스펙을 따릅니다.
             
             수행할 작업:
-            1. get_github_issue 툴로 이슈 상세 및 매니저 댓글(기술 스펙)을 읽는다
-            2. 기존 관련 파일이 있다면 read_github_file로 먼저 확인한다
-            3. TypeScript + Tailwind CSS로 React 컴포넌트를 작성한다
-            4. write_github_file로 '{feature_branch}' 브랜치에 파일을 커밋한다
-               - 파일 경로: src/components/[ComponentName].tsx
-            5. create_github_pr로 main 브랜치에 대한 PR을 생성한다
-            6. 이슈에 개발 완료 댓글을 남긴다 (PR 링크 포함)
+            1. get_github_issue 툴로 이슈 상세 및 매니저 댓글(기술 스펙)을 읽는다.
+            2. 스펙에 명시된 언어·프레임워크·파일 경로에 맞춰 구현한다. 스펙에 없는 스택으로 바꾸지 않는다.
+            3. 기존 관련 파일이 있다면 read_github_file로 확인한 뒤, 스펙에 맞게 작성·수정한다.
+            4. write_github_file로 '{feature_branch}' 브랜치에 커밋한다 (경로·파일명은 스펙 또는 저장소 컨벤션 따름).
+            5. create_github_pr로 main 브랜치에 대한 PR을 생성한다.
+            6. 이슈에 개발 완료 댓글을 남긴다 (PR 링크 포함).
+            7. (선택) Vercel 등 배포 툴이 있으면 스펙이나 이슈에 배포 요청이 있을 때 사용한다.
             
-            코드 작성 원칙:
-            - TypeScript 타입 명확히 정의
-            - 컴포넌트는 단일 책임 원칙 준수
-            - 에러 처리 및 로딩 상태 포함
-            - 접근성(aria) 속성 포함
+            원칙: 기술 스펙을 정확히 따르고, 해당 스택의 일반적인 모범 사례(타입·에러 처리·접근성 등)를 적용한다.
         """,
         expected_output="""
-            - 작성된 React 컴포넌트 코드
+            - 스펙에 맞게 작성된 코드·산출물
             - GitHub 커밋 및 PR 링크
             - 이슈에 남긴 완료 댓글
         """,
@@ -61,27 +60,24 @@ def create_dev_task(issue_number: int, feature_branch: str) -> Task:
 
 
 def create_qa_task(issue_number: int, feature_branch: str) -> Task:
-    """QA 에이전트: 코드 리뷰"""
+    """QA 에이전트: 스펙·스택 기준 코드 리뷰"""
     return Task(
         description=f"""
             이슈 #{issue_number}에서 개발된 코드를 리뷰하세요.
             
             수행할 작업:
-            1. get_github_issue 툴로 이슈와 댓글(PR 링크 포함)을 읽는다
-            2. read_github_file로 '{feature_branch}' 브랜치의 변경된 파일을 읽는다
-               - 경로는 이슈 댓글에서 찾거나 src/components/ 폴더를 확인
-            3. 다음 관점에서 코드를 리뷰한다:
-               - 버그 및 엣지 케이스
-               - TypeScript 타입 안전성
-               - React 안티패턴 (불필요한 리렌더링 등)
-               - 접근성 (aria 속성, 키보드 네비게이션)
-               - 코드 가독성
-            4. 리뷰 결과를 이슈에 댓글로 남긴다 (✅ 통과 / ⚠️ 개선 권장 / 🚨 수정 필요 형식)
+            1. get_github_issue 툴로 이슈와 매니저 스펙 댓글·개발 완료 댓글(PR 링크)을 읽는다.
+            2. read_github_file로 '{feature_branch}' 브랜치의 변경된 파일을 읽는다 (경로는 이슈·댓글 또는 저장소 구조에서 확인).
+            3. 다음 기준으로 리뷰한다:
+               - 매니저 기술 스펙(스택·범위·산출물) 준수 여부
+               - 해당 언어·프레임워크의 모범 사례 및 안티패턴
+               - 버그·엣지 케이스·타입 안전성·접근성·가독성
+            4. 리뷰 결과를 이슈에 댓글로 남긴다 (✅ 통과 / ⚠️ 개선 권장 / 🚨 수정 필요 형식).
         """,
         expected_output="""
-            - 코드 리뷰 체크리스트 결과
-            - 발견된 문제점 및 개선 제안
-            - 최종 승인 여부 (Approve / Request Changes)
+            - 스펙 준수 여부
+            - 코드 리뷰 체크리스트 및 발견된 문제·개선 제안
+            - 최종 판단 (Approve / Request Changes)
         """,
         agent=qa_agent,
     )
