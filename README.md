@@ -18,7 +18,8 @@ TeamWP/
 │   └── discord_tools.py  # Discord Bot API (선택)
 ├── docs/
 │   └── agent-convention.md   # 에이전트 일하는 방식 (docs/plan, skill, issues 규칙)
-├── main.py               # 진입점 (단일 이슈 or 감시 모드)
+├── dashboard/            # 웹 대시보드 (FastAPI, 실시간 진행 상황)
+├── main.py               # 진입점 (단일 이슈 / 감시 모드 / 대시보드)
 ├── requirements.txt
 └── .env.example
 ```
@@ -53,6 +54,8 @@ TeamWP/
 
 ## 설치 및 실행
 
+**요구 사항:** Python **3.10 이상**. CrewAI가 3.10 미만을 지원하지 않습니다. (`python --version`으로 확인 후, 필요하면 [python.org](https://www.python.org/downloads/) 또는 `winget install Python.Python.3.11` 등으로 설치)
+
 ```bash
 pip install -r requirements.txt
 cp .env.example .env
@@ -60,7 +63,22 @@ cp .env.example .env
 
 python main.py --issue 42              # 이슈 #42 처리
 python main.py --watch --interval 300   # 5분마다 agent-todo 이슈 감시
+python main.py --dashboard             # 웹 대시보드만 (아래 참고)
 ```
+
+### 웹 대시보드
+
+FastAPI로 동작하는 웹 대시보드에서 **실시간으로 에이전트 진행 상황**을 볼 수 있습니다. 기본 주소는 `http://127.0.0.1:3000`입니다.
+
+| 명령 | 설명 |
+|------|------|
+| `python main.py --dashboard` | 대시보드만 기동. 브라우저에서 이슈 번호를 입력해 수동 실행 |
+| `python main.py --dashboard --watch --interval 300` | 대시보드 + 5분마다 `agent-todo` 이슈 자동 감시. 상시 대기하면서 화면으로 모니터링할 때 권장 |
+
+포트를 바꾸려면 `--port` 옵션을 사용합니다.  
+예: `python main.py --dashboard --port 8080`
+
+> **참고:** `--watch`만 쓰면 감시만 하고 대시보드는 뜨지 않습니다. 대시보드에서 진행 상황을 보려면 반드시 `--dashboard`를 함께 넣어야 합니다.
 
 ### 여러 저장소(프로젝트) 감시
 
