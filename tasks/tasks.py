@@ -21,15 +21,16 @@ def create_issue_analysis_task(issue_number: int) -> Task:
             - 분석·스펙 요약을 docs/issues/issue-{issue_number}.md 에 작성한다 (없는 경로면 무시).
             
             수행할 작업:
-            1. get_github_issue 툴로 이슈 #{issue_number} 상세 내용을 읽는다.
-            2. (docs/skill, docs/plan 존재 시) read_github_file로 해당 경로 파일을 읽는다.
-            3. 이슈 유형을 파악한다 (신규 기능 / 버그 수정 / 개선 / 기타).
-            4. 이 작업에 맞는 기술 스펙을 작성한다. 반드시 다음을 명시한다:
+            1. get_github_issue 툴로 이슈 #{issue_number} 상세 내용과 모든 댓글을 읽는다.
+            2. 기존 댓글에 이미 있는 결정사항/제약사항/미해결 논점을 정리한 뒤 기술 스펙에 반영한다.
+            3. (docs/skill, docs/plan 존재 시) read_github_file로 해당 경로 파일을 읽는다.
+            4. 이슈 유형을 파악한다 (신규 기능 / 버그 수정 / 개선 / 기타).
+            5. 이 작업에 맞는 기술 스펙을 작성한다. 반드시 다음을 명시한다:
                - 사용할 언어·프레임워크·라이브러리 (이슈에 이미 적혀 있으면 따르고, 없으면 docs/skill·웹/프로젝트 맥락에 맞게 제안)
                - 구현 범위와 산출물 (어떤 파일/경로를 만들거나 수정할지)
                - API·UI·스크립트 등 형태와 컨벤션
-            5. 이슈에 분석 결과와 위 기술 스펙을 댓글로 남긴다.
-            6. (docs/issues 존재 시) 요약을 docs/issues/issue-{issue_number}.md 에 write_github_file로 남긴다.
+            6. 이슈에 분석 결과와 위 기술 스펙을 댓글로 남긴다.
+            7. (docs/issues 존재 시) 요약을 docs/issues/issue-{issue_number}.md 에 write_github_file로 남긴다.
         """,
         expected_output="""
             - 이슈 유형과 요약
@@ -52,14 +53,15 @@ def create_dev_task(issue_number: int, feature_branch: str) -> Task:
             - 구현 요약을 docs/issues/issue-{issue_number}.md 에 추가해도 된다 (없는 경로면 무시).
             
             수행할 작업:
-            1. get_github_issue 툴로 이슈 상세 및 매니저 댓글(기술 스펙)을 읽는다.
-            2. (docs/skill 존재 시) read_github_file로 프로젝트 규칙을 확인한다.
-            3. 스펙에 명시된 언어·프레임워크·파일 경로에 맞춰 구현한다. 스펙에 없는 스택으로 바꾸지 않는다.
-            4. 기존 관련 파일이 있다면 read_github_file로 확인한 뒤, 스펙에 맞게 작성·수정한다.
-            5. write_github_file로 '{feature_branch}' 브랜치에 커밋한다 (경로·파일명은 스펙 또는 docs/skill·저장소 컨벤션 따름).
-            6. create_github_pr로 main 브랜치에 대한 PR을 생성한다.
-            7. 이슈에 개발 완료 댓글을 남긴다 (PR 링크 포함).
-            8. (선택) Vercel 등 배포 툴이 있으면 스펙이나 이슈에 배포 요청이 있을 때 사용한다.
+            1. get_github_issue 툴로 이슈 본문과 모든 댓글(매니저 스펙 포함)을 읽는다.
+            2. create_github_branch로 '{feature_branch}' 브랜치를 main 기준으로 생성한다(이미 있으면 재사용).
+            3. (docs/skill 존재 시) read_github_file로 프로젝트 규칙을 확인한다.
+            4. 스펙에 명시된 언어·프레임워크·파일 경로에 맞춰 구현한다. 스펙에 없는 스택으로 바꾸지 않는다.
+            5. 기존 관련 파일이 있다면 read_github_file로 확인한 뒤, 스펙에 맞게 작성·수정한다.
+            6. write_github_file로 '{feature_branch}' 브랜치에 커밋한다 (경로·파일명은 스펙 또는 docs/skill·저장소 컨벤션 따름).
+            7. create_github_pr로 main 브랜치에 대한 PR을 생성한다.
+            8. 이슈에 개발 완료 댓글을 남긴다 (PR 링크 + QA가 확인할 변경 요약 포함).
+            9. (선택) Vercel 등 배포 툴이 있으면 스펙이나 이슈에 배포 요청이 있을 때 사용한다.
             
             원칙: 기술 스펙을 정확히 따르고, 해당 스택의 일반적인 모범 사례(타입·에러 처리·접근성 등)를 적용한다.
         """,
@@ -83,7 +85,7 @@ def create_qa_task(issue_number: int, feature_branch: str) -> Task:
             - docs/issues/issue-{issue_number}.md 가 있으면 스펙·구현 요약을 참고하고, 리뷰 요약을 해당 파일에 추가해도 된다 (없는 경로면 무시).
             
             수행할 작업:
-            1. get_github_issue 툴로 이슈와 매니저 스펙 댓글·개발 완료 댓글(PR 링크)을 읽는다.
+            1. get_github_issue 툴로 이슈 본문과 모든 댓글(매니저 스펙, 개발 구현 결과/PR 링크 포함)을 읽는다.
             2. (docs/issues, docs/skill 존재 시) read_github_file로 해당 이슈 요약·프로젝트 규칙을 확인한다.
             3. read_github_file로 '{feature_branch}' 브랜치의 변경된 파일을 읽는다 (경로는 이슈·댓글 또는 저장소 구조에서 확인).
             4. 다음 기준으로 리뷰한다:
