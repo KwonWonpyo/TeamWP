@@ -176,6 +176,8 @@ def run_dashboard(port: int = 3000, watch: bool = False, interval: int = 300):
     server_thread = threading.Thread(target=run_server, daemon=True)
     server_thread.start()
     print(f"Dashboard: http://127.0.0.1:{port}")
+    repo_env = os.getenv("GITHUB_REPO") or "(not set)"
+    print(f"GITHUB_REPO: {repo_env}")
 
     if watch:
         watch_thread = threading.Thread(

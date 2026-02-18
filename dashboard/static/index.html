@@ -156,6 +156,7 @@
 <body>
   <h1>AGENT TEAM DASHBOARD</h1>
   <div class="header">
+    <div class="stat">REPO: <span id="github-repo">-</span></div>
     <div class="stat">RUN: <span id="run-status">대기 중</span></div>
     <div class="stat">ISSUE: <span id="issue-num">-</span></div>
     <div class="stat">DONE: <span id="processed-count">0</span></div>
@@ -182,6 +183,7 @@
   <script>
     const POLL_MS = 60000;
     const agentsEl = document.getElementById('agents-container');
+    const githubRepoEl = document.getElementById('github-repo');
     const runStatusEl = document.getElementById('run-status');
     const issueNumEl = document.getElementById('issue-num');
     const processedCountEl = document.getElementById('processed-count');
@@ -238,6 +240,7 @@
 
     function updateUI(data) {
       renderAgents(data.agents || []);
+      githubRepoEl.textContent = data.github_repo || '(not set)';
       runStatusEl.textContent = data.running ? 'RUNNING' : '대기 중';
       const run = data.current_run;
       issueNumEl.textContent = run ? '#' + run.issue_number : '-';

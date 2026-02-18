@@ -44,7 +44,9 @@ def index():
 @app.get("/api/status")
 def api_status():
     """현재 실행 상태 스냅샷. agents 배열 길이에 맞춰 프론트가 카드 렌더링."""
-    return get_snapshot()
+    snapshot = get_snapshot()
+    snapshot["github_repo"] = os.getenv("GITHUB_REPO") or ""
+    return snapshot
 
 
 @app.post("/api/run")
