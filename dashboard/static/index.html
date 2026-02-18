@@ -136,6 +136,21 @@
     }
     .run-form button:hover { opacity: 0.9; }
     .run-form button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .usage-panel {
+      padding: 12px;
+      margin-bottom: 20px;
+      background: var(--panel);
+      border: 4px solid var(--border);
+      font-size: 8px;
+    }
+    .usage-panel.over-limit { border-color: var(--pixel); }
+    .usage-panel .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 8px; }
+    .usage-panel .row:last-child { margin-bottom: 0; }
+    .usage-panel .bar-wrap { flex: 1; min-width: 120px; height: 12px; background: var(--bg); border: 2px solid var(--border); }
+    .usage-panel .bar { height: 100%; background: var(--done); transition: width 0.2s; }
+    .usage-panel .bar.over { background: var(--pixel); }
+    .usage-panel .reset-btn { font-family: 'Press Start 2P', cursive; font-size: 8px; padding: 6px 10px; background: var(--border); color: var(--text); border: 2px solid var(--pixel); cursor: pointer; }
+    .usage-panel .reset-btn:hover { opacity: 0.9; }
   </style>
 </head>
 <body>
@@ -149,6 +164,18 @@
       <button type="button" id="run-btn">RUN</button>
     </div>
   </div>
+  <div class="usage-panel" id="usage-panel">
+    <div class="row">
+      <span>TOKENS: <span id="usage-tokens">0</span><span id="usage-token-limit"></span></span>
+      <span>CALLS: <span id="usage-calls">0</span><span id="usage-call-limit"></span></span>
+      <span>EST: $<span id="usage-cost">0</span></span>
+      <button type="button" class="reset-btn" id="usage-reset-btn">RESET</button>
+    </div>
+    <div class="row bar-row" id="usage-bar-row" style="display: none;">
+      <div class="bar-wrap"><div class="bar" id="usage-bar" style="width: 0%;"></div></div>
+    </div>
+    <div class="row" id="usage-over-msg" style="display: none;"><span style="color: var(--pixel);">USAGE LIMIT EXCEEDED — RUN disabled. Reset or raise limit in .env</span></div>
+  </div>
   <div class="agents" id="agents-container"></div>
   <div class="last-result empty" id="last-result">-</div>
 
@@ -161,6 +188,16 @@
     const lastResultEl = document.getElementById('last-result');
     const issueInputEl = document.getElementById('issue-input');
     const runBtnEl = document.getElementById('run-btn');
+    const usagePanelEl = document.getElementById('usage-panel');
+    const usageTokensEl = document.getElementById('usage-tokens');
+    const usageTokenLimitEl = document.getElementById('usage-token-limit');
+    const usageCallsEl = document.getElementById('usage-calls');
+    const usageCallLimitEl = document.getElementById('usage-call-limit');
+    const usageCostEl = document.getElementById('usage-cost');
+    const usageBarEl = document.getElementById('usage-bar');
+    const usageBarRowEl = document.getElementById('usage-bar-row');
+    const usageOverMsgEl = document.getElementById('usage-over-msg');
+    const usageResetBtnEl = document.getElementById('usage-reset-btn');
 
     function avatarClass(id) {
       const k = (id || '').toLowerCase();
@@ -207,7 +244,31 @@
       processedCountEl.textContent = String(data.processed_count ?? 0);
       lastResultEl.textContent = data.last_result || '-';
       lastResultEl.classList.toggle('empty', !data.last_result);
-      runBtnEl.disabled = !!data.running;
+
+      const usage = data.usage || {};
+      const totalTokens = usage.total_tokens ?? 0;
+      const calls = usage.calls ?? 0;
+      const limitTokens = usage.limit_tokens;
+      const limitCalls = usage.limit_calls;
+      const over = !!usage.limit_exceeded;
+
+      usageTokensEl.textContent = totalTokens.toLocaleString();
+      usageTokenLimitEl.textContent = limitTokens != null ? ' / ' + limitTokens.toLocaleString() : '';
+      usageCallsEl.textContent = calls;
+      usageCallLimitEl.textContent = limitCalls != null ? ' / ' + limitCalls : '';
+      usageCostEl.textContent = (usage.cost_estimate_usd ?? 0).toFixed(2);
+
+      if (limitTokens != null && limitTokens > 0) {
+        usageBarRowEl.style.display = 'flex';
+        const pct = Math.min(100, (totalTokens / limitTokens) * 100);
+        usageBarEl.style.width = pct + '%';
+        usageBarEl.classList.toggle('over', over);
+      } else {
+        usageBarRowEl.style.display = 'none';
+      }
+      usageOverMsgEl.style.display = over ? 'flex' : 'none';
+      usagePanelEl.classList.toggle('over-limit', over);
+      runBtnEl.disabled = !!data.running || over;
     }
 
     function poll() {
@@ -229,6 +290,13 @@
         .then(r => r.ok ? poll() : r.json().then(d => alert(d.detail || 'Error')))
         .catch(() => alert('Request failed'))
         .finally(() => poll());
+    });
+
+    usageResetBtnEl.addEventListener('click', () => {
+      usageResetBtnEl.disabled = true;
+      fetch('/api/usage/reset', { method: 'POST' })
+        .then(r => r.ok ? poll() : alert('Reset failed'))
+        .finally(() => { usageResetBtnEl.disabled = false; poll(); });
     });
 
     poll();

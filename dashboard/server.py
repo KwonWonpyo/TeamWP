@@ -19,6 +19,7 @@ if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
 from dashboard_state import get_snapshot, is_running
+from usage_tracking import is_over_limit, reset_usage
 
 app = FastAPI(title="Agent Team Dashboard")
 
@@ -48,16 +49,26 @@ def api_status():
 
 @app.post("/api/run")
 def api_run(body: RunRequest):
-    """단일 이슈 실행 트리거. 이미 실행 중이면 409."""
+    """단일 이슈 실행 트리거. 이미 실행 중이면 409. 사용량 상한 초과 시 403."""
     if is_running():
         raise HTTPException(status_code=409, detail="Already running")
-    # 실제 실행은 main 쪽에서 run_dashboard() 시 등록한 백그라운드 runner가 처리.
-    # 여기서는 runner가 있는지 확인하고, 있으면 큐/함수 호출로 넘김.
+    if is_over_limit():
+        raise HTTPException(
+            status_code=403,
+            detail="Usage limit exceeded. Reset usage or increase limit in .env (USAGE_LIMIT_TOKENS / USAGE_LIMIT_CALLS).",
+        )
     runner = getattr(app, "run_issue_fn", None)
     if runner is None:
         raise HTTPException(status_code=503, detail="Dashboard runner not registered")
     runner(body.issue)
     return {"ok": True, "issue": body.issue}
+
+
+@app.post("/api/usage/reset")
+def api_usage_reset():
+    """사용량 초기화 (토큰/호출 횟수 0으로)."""
+    reset_usage()
+    return {"ok": True}
 
 
 def register_runner(run_issue_fn):

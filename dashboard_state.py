@@ -102,8 +102,13 @@ def is_running() -> bool:
 
 def get_snapshot() -> dict:
     """API용 스냅샷. 스레드 안전."""
+    try:
+        from usage_tracking import get_usage
+        usage = get_usage()
+    except Exception:
+        usage = {}
     with _lock:
-        return {
+        out = {
             "running": _running,
             "agents": [
                 {"id": a.id, "role": a.role, "state": a.state}
@@ -121,3 +126,5 @@ def get_snapshot() -> dict:
             "last_result": _last_result,
             "processed_count": _processed_count,
         }
+        out["usage"] = usage
+        return out

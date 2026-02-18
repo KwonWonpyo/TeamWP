@@ -22,6 +22,9 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 load_dotenv()
 
+from usage_hooks import register_usage_hooks
+register_usage_hooks()
+
 from crewai import Crew, Process
 from github import Github
 
@@ -87,6 +90,10 @@ def watch_new_issues(interval_seconds: int = 300, process_fn=None):
 
             for issue in issues:
                 if issue.number not in processed_issues:
+                    from usage_tracking import is_over_limit
+                    if is_over_limit():
+                        print("Usage limit exceeded. Skipping new issues until reset.")
+                        break
                     print(f"New issue: #{issue.number} - {issue.title}")
                     run_issue(issue.number)
                     processed_issues.add(issue.number)

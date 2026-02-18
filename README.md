@@ -132,3 +132,16 @@ FastAPI로 동작하는 웹 대시보드에서 **실시간으로 에이전트 �
 - 이슈당 약 3~5회 LLM API 호출.
 - 감시 모드 폴링은 GitHub API만 사용.
 - Claude Haiku / GPT-4o-mini 등으로 모델을 바꾸면 비용 절감 가능.
+
+### 사용량 추적 및 상한
+
+웹 대시보드에서 **토큰 사용량·호출 횟수·비용 추정(USD)**을 확인할 수 있습니다.  
+`.env`에 상한을 두면 초과 시 **새 LLM 호출이 차단**되고, **Discord로 알림이 1회 전송**됩니다 (에이전트 툴과 별도로, `DISCORD_BOT_TOKEN`·`DISCORD_CHANNEL_ID` 필요).
+
+| 변수 | 설명 |
+|------|------|
+| `USAGE_LIMIT_TOKENS` | 토큰 상한 (누적). 초과 시 차단 + Discord 알림 |
+| `USAGE_LIMIT_CALLS` | LLM 호출 횟수 상한. 초과 시 차단 + Discord 알림 |
+| `LLM_COST_MODEL` | 비용 추정용 모델명 (예: `gpt-4o`, `claude-3-5-sonnet`). 미설정 시 gpt-4o 기준 |
+
+상한을 넣지 않으면 차단 없이 사용량만 표시됩니다. 대시보드의 **RESET** 버튼으로 사용량을 0으로 초기화할 수 있습니다.

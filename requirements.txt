@@ -11,6 +11,9 @@ python-dotenv>=1.0.0
 # CrewAI deps
 pydantic>=2.0.0
 
+# 토큰 사용량 추정 (비용 대시보드용, 없으면 글자 수 근사 사용)
+tiktoken>=0.5.0
+
 # HTTP / external API
 requests>=2.28.0
 
