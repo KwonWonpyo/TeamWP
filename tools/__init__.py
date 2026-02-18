@@ -6,6 +6,7 @@ from tools.github_tools import (
     ReadFileTool,
     WriteFileTool,
     CreatePRTool,
+    CreateIssueTool,
 )
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "ReadFileTool",
     "WriteFileTool",
     "CreatePRTool",
+    "CreateIssueTool",
 ]
 
 # 선택적 툴 (해당 모듈·환경 변수 설정 시 사용)

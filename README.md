@@ -46,10 +46,29 @@ python main.py --issue 42              # 이슈 #42 처리
 python main.py --watch --interval 300   # 5분마다 agent-todo 이슈 감시
 ```
 
+### 여러 저장소(프로젝트) 감시
+
+한 설치로 2개 이상 저장소를 매니저/개발/QA 하려면 **저장소당 프로세스 하나**씩 띄우고, 각각 다른 저장소를 지정하면 됩니다.
+
+- **방법 A — 환경 변수**  
+  `GITHUB_REPO=owner/repo-a python main.py --watch`  
+  (두 번째 터미널: `GITHUB_REPO=owner/repo-b python main.py --watch`)
+- **방법 C — CLI `--repo`**  
+  `python main.py --watch --repo owner/repo-a`  
+  (두 번째 터미널: `python main.py --watch --repo owner/repo-b`)
+
+`--repo`를 주면 `.env`의 `GITHUB_REPO`보다 우선합니다.
+
 ## 이슈 감시
 
 - **`agent-todo`** 라벨이 달린 이슈만 처리합니다.
 - 처리 후 라벨을 **`agent-done`**으로 바꿉니다.
+- QA가 후속 작업을 등록할 때 생성하는 이슈에는 **`agent-followup`**만 붙으며, 감시 루프는 이 라벨을 처리하지 않습니다 (사람이 검토 후 필요 시 `agent-todo`를 수동으로 붙일 수 있음).
+
+### 라벨·권한 권장
+
+- **`agent-todo`**를 붙이면 다음 폴링에 매니저→개발→QA 파이프라인이 실행되므로, **이슈 등록·라벨 편집 권한을 아무에게나 주면 안 됩니다.**
+- 저장소 설정에서 협업자 권한을 제한하거나, `agent-todo` 라벨을 신뢰할 수 있는 담당자만 붙이도록 정책을 두는 것을 권장합니다.
 
 ## 외부 API / MCP 확장 (Vercel, Discord 등)
 

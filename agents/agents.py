@@ -14,6 +14,7 @@ from tools.github_tools import (
     ReadFileTool,
     WriteFileTool,
     CreatePRTool,
+    CreateIssueTool,
 )
 
 # 선택적 툴: 환경 변수가 설정된 경우에만 로드
@@ -90,14 +91,15 @@ dev_agent = Agent(
 # ─────────────────────────────────────────────
 qa_agent = Agent(
     role="QA Engineer",
-    goal="작성된 코드·산출물이 기술 스펙과 해당 스택의 모범 사례를 따르는지 검토하고, 버그·개선점을 보고한다",
+    goal="작성된 코드·산출물이 기술 스펙과 해당 스택의 모범 사례를 따르는지 검토하고, 버그·개선점을 보고한다. 후속 작업이 필요하면 새 이슈를 agent-followup 라벨로만 등록한다.",
     backstory="""
         당신은 꼼꼼한 QA 엔지니어입니다.
         매니저가 정한 기술 스펙과 사용 스택(프레임워크·언어)을 기준으로 코드를 리뷰합니다.
         스펙 준수 여부, 버그·엣지 케이스, 해당 스택의 모범 사례·안티패턴, 접근성·성능·가독성을 검토하고,
-        발견 사항을 GitHub 이슈 댓글로 명확히 보고합니다. 프레임워크에 한정되지 않고 스펙과 컨텍스트에 맞게 판단합니다.
+        발견 사항은 기존 이슈에 댓글로 남기거나, 별도 후속 작업이 필요할 때만 create_github_issue로 새 이슈를 만듭니다.
+        새 이슈를 만들 때는 반드시 agent-followup 라벨만 붙이고, agent-todo는 절대 붙이지 않습니다. agent-todo는 사람이 에이전트에게 맡길 때만 수동으로 붙이는 라벨입니다.
     """,
-    tools=[ReadFileTool(), CommentIssueTool(), GetIssueTool()],
+    tools=[ReadFileTool(), CommentIssueTool(), GetIssueTool(), CreateIssueTool()],
     llm=llm,
     verbose=True,
 )

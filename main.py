@@ -6,8 +6,9 @@ main.py
 - 폴링 모드: GitHub 이슈를 주기적으로 감시 (--watch 옵션)
 
 사용법:
-    python main.py --issue 42                  # 이슈 #42 처리
-    python main.py --watch --interval 300      # 5분마다 새 이슈 감시
+    python main.py --issue 42                        # 이슈 #42 처리 (.env의 GITHUB_REPO)
+    python main.py --watch --interval 300            # 5분마다 새 이슈 감시
+    python main.py --watch --repo owner/other-repo   # 다른 저장소 감시 (여러 프로젝트 시)
 """
 
 import argparse
@@ -112,8 +113,18 @@ if __name__ == "__main__":
     parser.add_argument("--issue", type=int, help="처리할 이슈 번호")
     parser.add_argument("--watch", action="store_true", help="이슈 감시 모드 실행")
     parser.add_argument("--interval", type=int, default=300, help="감시 주기 (초, 기본 300)")
+    parser.add_argument(
+        "--repo",
+        type=str,
+        metavar="OWNER/REPO",
+        help="대상 저장소 (예: owner/repo). 없으면 .env의 GITHUB_REPO 사용. 여러 프로젝트 시 프로세스마다 다른 --repo 지정.",
+    )
 
     args = parser.parse_args()
+
+    # CLI --repo가 .env보다 우선 (한 설치로 여러 저장소 감시 시 유리)
+    if args.repo:
+        os.environ["GITHUB_REPO"] = args.repo
 
     if args.issue:
         process_issue(args.issue)
@@ -124,3 +135,4 @@ if __name__ == "__main__":
         print("\n예시:")
         print("  python main.py --issue 42")
         print("  python main.py --watch --interval 300")
+        print("  python main.py --watch --repo owner/repo-a   # 저장소 A 전용 프로세스")

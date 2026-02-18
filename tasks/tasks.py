@@ -73,6 +73,7 @@ def create_qa_task(issue_number: int, feature_branch: str) -> Task:
                - 해당 언어·프레임워크의 모범 사례 및 안티패턴
                - 버그·엣지 케이스·타입 안전성·접근성·가독성
             4. 리뷰 결과를 이슈에 댓글로 남긴다 (✅ 통과 / ⚠️ 개선 권장 / 🚨 수정 필요 형식).
+            5. 별도 후속 작업이 필요하면 create_github_issue로 새 이슈를 만들고, 라벨은 agent-followup만 붙인다 (agent-todo는 붙이지 않음).
         """,
         expected_output="""
             - 스펙 준수 여부

@@ -4,7 +4,10 @@ tools/github_tools.py
 에이전트들이 GitHub 저장소와 상호작용하기 위한 커스텀 툴 모음
 """
 
+from __future__ import annotations
+
 import os
+from typing import List, Optional
 from github import Github
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
@@ -157,6 +160,38 @@ class WriteFileTool(BaseTool):
                 branch=branch,
             )
             return f"파일 생성 완료: {file_path} (브랜치: {branch})"
+
+
+# ─────────────────────────────────────────────
+# 이슈 생성 (후속 작업용 — agent-followup 라벨 사용, agent-todo 사용 금지)
+# ─────────────────────────────────────────────
+class CreateIssueInput(BaseModel):
+    title: str = Field(description="이슈 제목")
+    body: str = Field(description="이슈 본문 (마크다운 가능)")
+    labels: List[str] = Field(
+        default_factory=lambda: ["agent-followup"],
+        description="붙일 라벨 목록. 에이전트가 만드는 후속 이슈는 agent-followup만 사용하고 agent-todo는 넣지 않는다.",
+    )
+
+
+class CreateIssueTool(BaseTool):
+    name: str = "create_github_issue"
+    description: str = (
+        "GitHub에 새 이슈를 생성합니다. "
+        "QA가 버그·개선 요청 등 후속 작업을 등록할 때 사용합니다. "
+        "반드시 labels에 agent-followup만 사용하고, agent-todo는 붙이지 마세요. "
+        "agent-todo는 사람이 수동으로 붙이는 전용 라벨입니다."
+    )
+    args_schema: type[BaseModel] = CreateIssueInput
+
+    def _run(self, title: str, body: str, labels: Optional[List[str]] = None) -> str:
+        repo = get_github_client()
+        label_list = labels if labels is not None else ["agent-followup"]
+        if "agent-todo" in label_list:
+            label_list = [l for l in label_list if l != "agent-todo"]
+            label_list.append("agent-followup")
+        issue = repo.create_issue(title=title, body=body, labels=label_list)
+        return f"이슈 생성 완료: #{issue.number} {issue.title} | 라벨: {label_list} | {issue.html_url}"
 
 
 # ─────────────────────────────────────────────
