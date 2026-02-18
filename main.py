@@ -101,18 +101,37 @@ def _count_comments(repo, issue_number: int) -> int:
         return -1
 
 
-def _force_comment(repo, issue_number: int, crew_result) -> None:
-    """에이전트가 댓글을 남기지 않았을 때, 오케스트레이션 코드가 직접 댓글을 작성한다."""
+AGENT_HEADERS = [
+    "[바이스(Vice) — PM]",
+    "[플뢰르(Fleur) — Dev]",
+    "[베델(Bethel) — QA]",
+]
+
+AGENT_COUNT = len(AGENT_HEADERS)
+
+
+def _find_missing_agents(repo, issue_number: int, before_count: int) -> list[str]:
+    """crew 실행 후 새로 달린 댓글을 검사해, 헤더가 빠진 에이전트 목록을 반환한다."""
+    try:
+        comments = list(repo.get_issue(issue_number).get_comments())
+        new_comments = comments[before_count:] if before_count >= 0 else comments
+        new_bodies = "\n".join(c.body or "" for c in new_comments)
+    except Exception:
+        return list(AGENT_HEADERS)
+    return [h for h in AGENT_HEADERS if h not in new_bodies]
+
+
+def _force_comment(repo, issue_number: int, missing_headers: list[str], crew_result) -> None:
+    """댓글을 남기지 않은 에이전트 대신 오케스트레이션 코드가 보정 댓글을 작성한다."""
+    names = ", ".join(missing_headers)
     result_text = str(crew_result) if crew_result else ""
+
     body = (
-        "## [자동 보정] 매니저 에이전트 분석 결과\n\n"
-        "> 에이전트가 `comment_github_issue` 도구를 실행하지 못해 오케스트레이션 코드가 대신 댓글을 남깁니다.\n\n"
+        f"## [자동 보정] 누락 에이전트 댓글\n\n"
+        f"> 다음 에이전트가 `comment_github_issue`를 실행하지 못해 오케스트레이션 코드가 대신 댓글을 남깁니다: **{names}**\n\n"
     )
     if "ChatCompletionMessageToolCall" in result_text or "Function(arguments=" in result_text:
-        body += (
-            "에이전트가 도구 호출 목록만 반환하고 실제 실행에 실패했습니다.\n"
-            "이슈 분석·기술 스펙은 다음 실행에서 다시 시도됩니다.\n"
-        )
+        body += "에이전트가 도구 호출 목록만 반환하고 실제 실행에 실패했습니다.\n"
     elif result_text.strip():
         if len(result_text) > 3000:
             result_text = result_text[:3000] + "\n\n... (이하 생략)"
@@ -123,7 +142,7 @@ def _force_comment(repo, issue_number: int, crew_result) -> None:
     try:
         issue = repo.get_issue(issue_number)
         issue.create_comment(body)
-        print(f"[보정] 이슈 #{issue_number}에 강제 댓글 작성 완료.")
+        print(f"[보정] 이슈 #{issue_number}에 누락 에이전트({names}) 보정 댓글 작성 완료.")
     except Exception as e:
         print(f"[보정 실패] 이슈 #{issue_number} 강제 댓글 작성 실패: {e}")
 
@@ -176,15 +195,17 @@ def process_issue(issue_number: int, dashboard_callback=None):
         print(readable)
     print(f"{'='*50}")
 
-    # 실행 후 댓글 수 검증
+    # 실행 후 댓글 검증: 각 에이전트 헤더가 새 댓글에 포함되어 있는지 확인
     after_count = _count_comments(repo, issue_number)
-    print(f"[검증] 실행 후 댓글 수: {after_count}")
+    new_count = max(after_count - before_count, 0)
+    print(f"[검증] 실행 후 댓글 수: {after_count} (신규 {new_count}개)")
 
-    if after_count <= before_count:
-        print(f"[검증] 에이전트가 댓글을 남기지 않았습니다. 강제 댓글을 작성합니다.")
-        _force_comment(repo, issue_number, result)
+    missing = _find_missing_agents(repo, issue_number, before_count)
+    if missing:
+        print(f"[검증] 댓글 누락 에이전트: {', '.join(missing)}. 보정 댓글을 작성합니다.")
+        _force_comment(repo, issue_number, missing, result)
     else:
-        print(f"[검증] 댓글이 정상적으로 작성되었습니다. (+{after_count - before_count}개)")
+        print(f"[검증] 모든 에이전트({AGENT_COUNT}명)가 정상적으로 댓글을 작성했습니다.")
 
     print()
     return result
