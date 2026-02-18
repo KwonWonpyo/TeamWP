@@ -16,6 +16,8 @@ TeamWP/
 │   ├── github_tools.py   # GitHub API 툴
 │   ├── vercel_tools.py   # Vercel API (선택)
 │   └── discord_tools.py  # Discord Bot API (선택)
+├── docs/
+│   └── agent-convention.md   # 에이전트 일하는 방식 (docs/plan, skill, issues 규칙)
 ├── main.py               # 진입점 (단일 이슈 or 감시 모드)
 ├── requirements.txt
 └── .env.example
@@ -34,6 +36,20 @@ TeamWP/
 - 매니저가 이슈를 보고 **사용할 언어·프레임워크·산출물**을 기술 스펙으로 정합니다.  
   (이슈에 이미 스택이 적혀 있으면 따르고, 없으면 프로젝트 맥락에 맞게 제안.)
 - 개발·QA는 **그 스펙만 보고** 작업합니다. React/Vue/Svelte, 백엔드, 스크립트 등 어떤 형태든 요청에 맞춥니다.
+
+## 에이전트 일하는 방식 (docs/ convention)
+
+개발은 에이전트가 수행하고 GitHub를 메인으로 쓰므로, **저장소 안에 “일하는 방식”**을 정의할 수 있습니다.  
+에이전트가 작업할 **대상 저장소**에 아래 구조를 두면, 매니저/개발/QA가 이를 읽고 씁니다.
+
+| 디렉터리 | 용도 | 에이전트 사용 |
+|----------|------|----------------|
+| **docs/plan/** | 계획·스프린트·기술 스펙 요약 | 매니저 참조·작성 |
+| **docs/skill/** | 프로젝트 스택·가이드라인·모범 사례 | 매니저·개발·QA 참조 |
+| **docs/issues/** | 이슈별 요약·스펙·결과 (issue-42.md 등) | 매니저·개발·QA 작성·참조 |
+
+- **없는 경로**는 무시하고 이슈 댓글만으로 진행합니다.
+- 상세 규칙: [docs/agent-convention.md](docs/agent-convention.md)
 
 ## 설치 및 실행
 

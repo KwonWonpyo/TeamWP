@@ -15,14 +15,21 @@ def create_issue_analysis_task(issue_number: int) -> Task:
         description=f"""
             GitHub 이슈 #{issue_number}을 분석하세요.
             
+            [저장소 docs/ 규칙] 저장소에 docs/plan, docs/skill, docs/issues 디렉터리가 있으면:
+            - docs/skill/ 내 파일을 읽어 프로젝트 스택·가이드라인에 맞게 스펙을 제안한다.
+            - docs/plan/ 이 있으면 참고해 맥락에 반영한다.
+            - 분석·스펙 요약을 docs/issues/issue-{issue_number}.md 에 작성한다 (없는 경로면 무시).
+            
             수행할 작업:
             1. get_github_issue 툴로 이슈 #{issue_number} 상세 내용을 읽는다.
-            2. 이슈 유형을 파악한다 (신규 기능 / 버그 수정 / 개선 / 기타).
-            3. 이 작업에 맞는 기술 스펙을 작성한다. 반드시 다음을 명시한다:
-               - 사용할 언어·프레임워크·라이브러리 (이슈에 이미 적혀 있으면 따르고, 없으면 웹/프로젝트 맥락에 맞게 제안)
+            2. (docs/skill, docs/plan 존재 시) read_github_file로 해당 경로 파일을 읽는다.
+            3. 이슈 유형을 파악한다 (신규 기능 / 버그 수정 / 개선 / 기타).
+            4. 이 작업에 맞는 기술 스펙을 작성한다. 반드시 다음을 명시한다:
+               - 사용할 언어·프레임워크·라이브러리 (이슈에 이미 적혀 있으면 따르고, 없으면 docs/skill·웹/프로젝트 맥락에 맞게 제안)
                - 구현 범위와 산출물 (어떤 파일/경로를 만들거나 수정할지)
                - API·UI·스크립트 등 형태와 컨벤션
-            4. 이슈에 분석 결과와 위 기술 스펙을 댓글로 남긴다.
+            5. 이슈에 분석 결과와 위 기술 스펙을 댓글로 남긴다.
+            6. (docs/issues 존재 시) 요약을 docs/issues/issue-{issue_number}.md 에 write_github_file로 남긴다.
         """,
         expected_output="""
             - 이슈 유형과 요약
@@ -39,14 +46,20 @@ def create_dev_task(issue_number: int, feature_branch: str) -> Task:
         description=f"""
             이슈 #{issue_number}에 대한 구현을 하세요. 반드시 매니저가 댓글로 남긴 기술 스펙을 따릅니다.
             
+            [저장소 docs/ 규칙] 저장소에 docs/skill, docs/issues 가 있으면:
+            - docs/skill/ 내 파일을 읽어 스택·컨벤션을 준수한다.
+            - docs/issues/issue-{issue_number}.md 가 있으면 매니저 요약을 참고한다.
+            - 구현 요약을 docs/issues/issue-{issue_number}.md 에 추가해도 된다 (없는 경로면 무시).
+            
             수행할 작업:
             1. get_github_issue 툴로 이슈 상세 및 매니저 댓글(기술 스펙)을 읽는다.
-            2. 스펙에 명시된 언어·프레임워크·파일 경로에 맞춰 구현한다. 스펙에 없는 스택으로 바꾸지 않는다.
-            3. 기존 관련 파일이 있다면 read_github_file로 확인한 뒤, 스펙에 맞게 작성·수정한다.
-            4. write_github_file로 '{feature_branch}' 브랜치에 커밋한다 (경로·파일명은 스펙 또는 저장소 컨벤션 따름).
-            5. create_github_pr로 main 브랜치에 대한 PR을 생성한다.
-            6. 이슈에 개발 완료 댓글을 남긴다 (PR 링크 포함).
-            7. (선택) Vercel 등 배포 툴이 있으면 스펙이나 이슈에 배포 요청이 있을 때 사용한다.
+            2. (docs/skill 존재 시) read_github_file로 프로젝트 규칙을 확인한다.
+            3. 스펙에 명시된 언어·프레임워크·파일 경로에 맞춰 구현한다. 스펙에 없는 스택으로 바꾸지 않는다.
+            4. 기존 관련 파일이 있다면 read_github_file로 확인한 뒤, 스펙에 맞게 작성·수정한다.
+            5. write_github_file로 '{feature_branch}' 브랜치에 커밋한다 (경로·파일명은 스펙 또는 docs/skill·저장소 컨벤션 따름).
+            6. create_github_pr로 main 브랜치에 대한 PR을 생성한다.
+            7. 이슈에 개발 완료 댓글을 남긴다 (PR 링크 포함).
+            8. (선택) Vercel 등 배포 툴이 있으면 스펙이나 이슈에 배포 요청이 있을 때 사용한다.
             
             원칙: 기술 스펙을 정확히 따르고, 해당 스택의 일반적인 모범 사례(타입·에러 처리·접근성 등)를 적용한다.
         """,
@@ -65,15 +78,21 @@ def create_qa_task(issue_number: int, feature_branch: str) -> Task:
         description=f"""
             이슈 #{issue_number}에서 개발된 코드를 리뷰하세요.
             
+            [저장소 docs/ 규칙] 저장소에 docs/skill, docs/issues 가 있으면:
+            - docs/skill/ 의 모범 사례·규칙을 리뷰 기준으로 참고한다.
+            - docs/issues/issue-{issue_number}.md 가 있으면 스펙·구현 요약을 참고하고, 리뷰 요약을 해당 파일에 추가해도 된다 (없는 경로면 무시).
+            
             수행할 작업:
             1. get_github_issue 툴로 이슈와 매니저 스펙 댓글·개발 완료 댓글(PR 링크)을 읽는다.
-            2. read_github_file로 '{feature_branch}' 브랜치의 변경된 파일을 읽는다 (경로는 이슈·댓글 또는 저장소 구조에서 확인).
-            3. 다음 기준으로 리뷰한다:
+            2. (docs/issues, docs/skill 존재 시) read_github_file로 해당 이슈 요약·프로젝트 규칙을 확인한다.
+            3. read_github_file로 '{feature_branch}' 브랜치의 변경된 파일을 읽는다 (경로는 이슈·댓글 또는 저장소 구조에서 확인).
+            4. 다음 기준으로 리뷰한다:
                - 매니저 기술 스펙(스택·범위·산출물) 준수 여부
                - 해당 언어·프레임워크의 모범 사례 및 안티패턴
                - 버그·엣지 케이스·타입 안전성·접근성·가독성
-            4. 리뷰 결과를 이슈에 댓글로 남긴다 (✅ 통과 / ⚠️ 개선 권장 / 🚨 수정 필요 형식).
-            5. 별도 후속 작업이 필요하면 create_github_issue로 새 이슈를 만들고, 라벨은 agent-followup만 붙인다 (agent-todo는 붙이지 않음).
+            5. 리뷰 결과를 이슈에 댓글로 남긴다 (✅ 통과 / ⚠️ 개선 권장 / 🚨 수정 필요 형식).
+            6. (docs/issues 존재 시) 리뷰 요약을 docs/issues/issue-{issue_number}.md 에 반영해도 된다.
+            7. 별도 후속 작업이 필요하면 create_github_issue로 새 이슈를 만들고, 라벨은 agent-followup만 붙인다 (agent-todo는 붙이지 않음).
         """,
         expected_output="""
             - 스펙 준수 여부
