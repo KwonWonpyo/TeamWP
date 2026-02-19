@@ -6,7 +6,7 @@ tasks/tasks.py
 """
 
 from crewai import Task
-from agents.agents import manager_agent, dev_agent, qa_agent
+from agents.agents import manager_agent, dev_agent, qa_agent, ui_designer_agent, ui_publisher_agent
 
 
 def create_issue_analysis_task(issue_number: int) -> Task:
@@ -110,4 +110,75 @@ def create_qa_task(issue_number: int, feature_branch: str) -> Task:
             - 최종 판단 (Approve / Request Changes)
         """,
         agent=qa_agent,
+    )
+
+
+def create_ui_designer_task(issue_number: int, design_branch: str) -> Task:
+    """UI Designer: 디자인 스펙·스타일·가이드라인 작성 및 저장소 반영"""
+    return Task(
+        description=f"""
+            이슈 #{issue_number}에 대한 UI/UX 디자인 산출물을 작성하세요.
+            매니저가 댓글로 남긴 기술 스펙과 이슈 요구사항을 기준으로, UI Publisher 또는 Frontend Developer가 활용할 수 있는 형태로 만듭니다.
+            
+            [저장소 docs/ 규칙] 저장소에 docs/skill, docs/issues 가 있으면:
+            - docs/skill/ 내 디자인·UI 관련 가이드를 읽어 반영한다.
+            - docs/issues/issue-{issue_number}.md 가 있으면 매니저 요약을 참고하고, 디자인 요약을 추가해도 된다 (없는 경로면 무시).
+            
+            수행할 작업:
+            1. get_github_issue 툴로 이슈 #{issue_number} 본문과 모든 댓글(매니저 스펙 포함)을 읽는다.
+            2. (docs/skill, docs/issues 존재 시) read_github_file로 프로젝트 디자인 컨벤션·기존 스타일을 확인한다.
+            3. 요구사항에 맞는 디자인 산출물을 만든다. 다음 중 적절한 형태를 선택·조합한다:
+               - 디자인 스펙·가이드라인 (마크다운: docs/design/ 또는 이슈별 경로)
+               - CSS/SCSS 스타일시트 또는 테마 변수 정의
+               - 컴포넌트별 스타일·애니메이션·인터랙션 명세
+               - Figma MCP 등 외부 디자인 툴이 있으면 해당 툴을 활용한 결과물 (연결 시)
+            4. create_github_branch로 '{design_branch}' 브랜치를 main 기준으로 생성한다(이미 있으면 재사용).
+            5. write_github_file로 '{design_branch}' 브랜치에 산출물을 커밋한다 (경로는 스펙·docs 규칙 따름).
+            6. 필요 시 create_github_pr로 디자인 브랜치용 PR을 생성한다.
+            7. 반드시 comment_github_issue로 이슈 #{issue_number}에 댓글을 남긴다. 댓글 본문 맨 앞에 "**[아주르(Azure) — UI Designer]**" 헤더를 붙인다.
+               - 산출물 목록, 파일 경로, UI Publisher/개발자가 참고할 요점을 포함한다.
+               댓글을 남기지 않으면 작업이 완료된 것이 아니다.
+            
+            원칙: CSS 애니메이션·인터랙션·UX·접근성·반응형을 고려하고, 퍼블리셔/개발자가 그대로 활용할 수 있도록 명확히 작성한다.
+        """,
+        expected_output="""
+            - 디자인 스펙·스타일시트·가이드라인 등 산출물 (마크다운/CSS/명세)
+            - GitHub 브랜치 커밋 및 필요 시 PR
+            - 이슈 #{issue_number}에 "[아주르(Azure) — UI Designer]" 헤더가 포함된 댓글 작성 완료
+        """,
+        agent=ui_designer_agent,
+    )
+
+
+def create_ui_publisher_task(issue_number: int, feature_branch: str) -> Task:
+    """UI Publisher: 웹 표준·접근성 준수 퍼블리싱 및 PR·이슈 댓글"""
+    return Task(
+        description=f"""
+            이슈 #{issue_number}에 대한 웹 퍼블리싱을 수행하세요.
+            매니저 스펙과 UI Designer가 제공한 디자인 산출물(마크다운·CSS·가이드라인 등)을 입력으로 활용합니다.
+            
+            [저장소 docs/ 규칙] 저장소에 docs/skill, docs/issues 가 있으면:
+            - docs/skill/ 내 퍼블리싱·접근성 가이드를 읽어 준수한다.
+            - docs/issues/issue-{issue_number}.md 및 디자인 관련 댓글을 참고한다.
+            
+            수행할 작업:
+            1. get_github_issue 툴로 이슈 #{issue_number} 본문과 모든 댓글(매니저 스펙, UI Designer 산출물 요약 포함)을 읽는다.
+            2. (docs/skill, docs/issues 존재 시) read_github_file로 프로젝트 규칙·디자인 스펙 파일을 확인한다.
+            3. UI Designer가 올린 디자인 브랜치 또는 댓글에 안내된 산출물(마크다운, CSS, 이미지 경로 등)을 read_github_file로 읽고 반영한다.
+            4. create_github_branch로 '{feature_branch}' 브랜치를 main 기준으로 생성한다(이미 있으면 재사용).
+            5. 웹 표준(시맨틱 HTML5), 웹 접근성(WCAG), 크로스 브라우저·반응형을 준수하여 마크업·스타일을 작성한다.
+            6. write_github_file로 '{feature_branch}' 브랜치에 커밋한다.
+            7. create_github_pr로 main 브랜치에 대한 PR을 생성한다.
+            8. 반드시 comment_github_issue로 이슈 #{issue_number}에 댓글을 남긴다. 댓글 본문 맨 앞에 "**[엘시(Elcy) — UI Publisher]**" 헤더를 붙인다.
+               - PR 링크, 반영한 디자인·접근성 요약, 확인 포인트를 포함한다.
+               댓글을 남기지 않으면 작업이 완료된 것이 아니다.
+            
+            원칙: 마크다운·소스코드 예시·이미지·Figma 등 입력을 이해하고, 웹 표준·접근성·호환성을 지키며 퍼블리싱한다.
+        """,
+        expected_output="""
+            - 웹 표준·접근성 준수 퍼블리싱 산출물 (HTML/CSS 등)
+            - GitHub 브랜치 '{feature_branch}' 커밋 및 PR 링크
+            - 이슈 #{issue_number}에 "[엘시(Elcy) — UI Publisher]" 헤더가 포함된 댓글 작성 완료
+        """,
+        agent=ui_publisher_agent,
     )
