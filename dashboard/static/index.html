@@ -210,12 +210,13 @@
       grid-template-rows: repeat(8, 1fr);
     }
     .agent-avatar .pixel { background: currentColor; }
-    .agent-avatar.manager        .pixel { color: #6c5ce7; }
-    .agent-avatar.developer      .pixel { color: #00b894; }
-    .agent-avatar.qa_engineer    .pixel { color: #e17055; }
-    .agent-avatar.ui_designer    .pixel { color: #00cec9; }
+    .agent-avatar.manager         .pixel { color: #6c5ce7; }
+    .agent-avatar.developer       .pixel { color: #00b894; }
+    .agent-avatar.developer_tiny  .pixel { color: #55efc4; }
+    .agent-avatar.qa_engineer     .pixel { color: #e17055; }
+    .agent-avatar.ui_designer     .pixel { color: #00cec9; }
     .agent-avatar.devils_advocate .pixel { color: #fd79a8; }
-    .agent-avatar.default        .pixel { color: var(--pixel); }
+    .agent-avatar.default         .pixel { color: var(--pixel); }
 
     .agent-name { font-size: 8px; margin-bottom: 6px; word-break: break-word; }
     .agent-state {
@@ -319,7 +320,8 @@
     function avatarClass(id) {
       const k = (id || '').toLowerCase();
       if (k.includes('manager'))                              return 'manager';
-      if (k.includes('developer') || k.includes('dev'))      return 'developer';
+      if (k.includes('tiny'))                                 return 'developer_tiny';
+      if (k.includes('developer') || k.includes('dev') || k.includes('fleur')) return 'developer';
       if (k.includes('qa') || k.includes('engineer'))        return 'qa_engineer';
       if (k.includes('ui') || k.includes('designer') || k.includes('azure')) return 'ui_designer';
       if (k.includes('devil') || k.includes('advocate') || k.includes('elcy')) return 'devils_advocate';
@@ -358,19 +360,19 @@
     }
 
     function renderRooms(allAgents, running) {
-      const activeAgents  = allAgents.filter(a => a.active);
-      const loungeAgents  = allAgents.filter(a => !a.active);
+      // Process.hierarchical: running 여부에 따라 전체 에이전트를 작업실/휴게실로 이동
+      const officeAgents = running ? allAgents : [];
+      const loungeAgents = running ? [] : allAgents;
 
-      const newActiveIds = new Set(activeAgents.map(a => a.id));
+      const newActiveIds = new Set(officeAgents.map(a => a.id));
 
       // 작업실
-      if (activeAgents.length === 0) {
-        officBodyEl.innerHTML = '<div class="section-empty">대기 중 — 이슈가 시작되면 선발 에이전트가 여기로 이동합니다</div>';
+      if (officeAgents.length === 0) {
+        officBodyEl.innerHTML = '<div class="section-empty">대기 중 — 이슈가 시작되면 에이전트들이 여기로 이동합니다</div>';
       } else {
-        // working 에이전트를 앞으로, 나머지는 순서 유지
         const sorted = [
-          ...activeAgents.filter(a => a.state === 'working'),
-          ...activeAgents.filter(a => a.state !== 'working'),
+          ...officeAgents.filter(a => a.state === 'working'),
+          ...officeAgents.filter(a => a.state !== 'working'),
         ];
         officBodyEl.innerHTML = sorted.map(a => {
           const entering = !prevActiveIds.has(a.id);
@@ -379,7 +381,7 @@
       }
 
       // 휴게실
-      if (loungeAgents.length === 0 && activeAgents.length > 0) {
+      if (loungeAgents.length === 0 && running) {
         loungeBodyEl.innerHTML = '<div class="section-empty">전원 작업 중</div>';
       } else if (loungeAgents.length === 0) {
         loungeBodyEl.innerHTML = '<div class="section-empty">Loading...</div>';

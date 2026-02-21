@@ -255,6 +255,45 @@ class CreateIssueTool(BaseTool):
 
 
 # ─────────────────────────────────────────────
+# 이슈 라벨 추가/제거
+# ─────────────────────────────────────────────
+class UpdateIssueLabelsInput(BaseModel):
+    issue_number: int = Field(description="라벨을 수정할 이슈 번호")
+    add_labels: List[str] = Field(default_factory=list, description="추가할 라벨 목록")
+    remove_labels: List[str] = Field(default_factory=list, description="제거할 라벨 목록")
+
+
+class UpdateIssueLabelsTool(BaseTool):
+    name: str = "update_github_issue_labels"
+    description: str = (
+        "GitHub 이슈의 라벨을 추가하거나 제거합니다. "
+        "모든 작업이 완료되면 agent-todo를 제거하고 agent-done을 추가하세요. "
+        "agent-todo 라벨을 add_labels에 넣는 것은 허용되지 않습니다."
+    )
+    args_schema: type[BaseModel] = UpdateIssueLabelsInput
+
+    def _run(self, issue_number: int, add_labels: Optional[List[str]] = None, remove_labels: Optional[List[str]] = None) -> str:
+        repo = get_github_client()
+        add = [l for l in (add_labels or []) if l != "agent-todo"]
+        remove = list(remove_labels or [])
+        results = []
+        issue = repo.get_issue(issue_number)
+        for label in remove:
+            try:
+                issue.remove_from_labels(label)
+                results.append(f"라벨 제거: {label}")
+            except Exception:
+                results.append(f"라벨 제거 생략 (없음): {label}")
+        for label in add:
+            try:
+                issue.add_to_labels(label)
+                results.append(f"라벨 추가: {label}")
+            except Exception as e:
+                results.append(f"라벨 추가 실패 ({label}): {e}")
+        return f"이슈 #{issue_number} 라벨 업데이트 완료: " + ", ".join(results) if results else "변경 없음"
+
+
+# ─────────────────────────────────────────────
 # PR 생성
 # ─────────────────────────────────────────────
 class CreatePRInput(BaseModel):

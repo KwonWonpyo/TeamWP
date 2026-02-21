@@ -2,7 +2,10 @@
 dashboard_state.py
 
 대시보드용 공유 상태. 크루 실행(백그라운드 스레드)과 FastAPI가 동시에 접근하므로 Lock으로 보호.
-에이전트 수가 늘어나도 agents 리스트만 갱신하면 되도록 설계.
+Process.hierarchical 전환에 따라 어떤 에이전트가 선발되는지 사전에 알 수 없으므로,
+작업실/휴게실 구분은 running 플래그 기준으로 단순화한다.
+  - running=True: 전체 에이전트 작업실
+  - running=False: 전체 에이전트 휴게실
 """
 
 import threading
@@ -26,8 +29,7 @@ class CurrentRun:
 
 
 _lock = threading.Lock()
-_all_agents: list = []  # 서버 시작 시 등록된 전체 에이전트 (변하지 않음)
-_agents: list = []      # 현재 런에 선발된 에이전트 (런마다 재초기화)
+_all_agents: list = []  # 서버 시작 시 등록된 전체 에이전트
 _current_run: Optional[CurrentRun] = None
 _last_result: str = ""
 _processed_count: int = 0
@@ -44,51 +46,38 @@ def _make_agent_states(crew_agents: list[Any]) -> list:
 
 
 def init_agents_from_crew(crew_agents: list[Any]) -> None:
-    """서버 시작 시 전체 에이전트 목록 등록. _all_agents로 보존하며 대시보드 상시 표시에 사용."""
-    global _agents, _all_agents
+    """서버 시작 시 전체 에이전트 목록 등록."""
+    global _all_agents
     with _lock:
         _all_agents = _make_agent_states(crew_agents)
-        _agents = []  # 런 전까지 선발 목록 비움
 
 
 def set_run_started(issue_number: int, started_at: str, run_agents: list[Any] | None = None) -> None:
-    """크루 kickoff 직전: 현재 런 설정, 0번 에이전트 working.
-    run_agents가 주어지면 해당 런의 실제 에이전트 목록으로 _agents를 재초기화한다.
-    동적 팀 구성 시 런마다 에이전트 수가 달라지므로 반드시 선발 목록을 전달해야 한다.
-    """
-    global _current_run, _running, _agents
+    """크루 kickoff 직전: 현재 런 설정. hierarchical에서는 전체 에이전트가 작업실로 이동."""
+    global _current_run, _running
     with _lock:
         _running = True
-        if run_agents is not None:
-            _agents = _make_agent_states(run_agents)
         _current_run = CurrentRun(
             issue_number=issue_number,
             current_task_index=0,
             started_at=started_at,
             completed_tasks=[],
         )
-        for i, ag in enumerate(_agents):
-            ag.state = "working" if i == 0 else "idle"
+        for ag in _all_agents:
+            ag.state = "working"
 
 
 def on_task_complete(task_index: int, task_output_summary: str = "") -> None:
-    """태스크 N 완료 콜백: agents[N]=done, agents[N+1]=working(있으면), current_task_index 갱신."""
+    """태스크 완료 콜백."""
     global _current_run
     with _lock:
-        if task_index < len(_agents):
-            _agents[task_index].state = "done"
         if _current_run is not None:
             _current_run.completed_tasks.append(task_output_summary or f"Task {task_index} done")
-            next_index = task_index + 1
-            if next_index < len(_agents):
-                _agents[next_index].state = "working"
-                _current_run.current_task_index = next_index
-            else:
-                _current_run.current_task_index = -1  # all done
+            _current_run.current_task_index = task_index + 1
 
 
 def set_run_finished(result_summary: str = "", error: str = "") -> None:
-    """크루 완료 또는 예외 시: last_result 갱신, running 해제. 선발 에이전트 목록 유지(결과 확인용)."""
+    """크루 완료 또는 예외 시: last_result 갱신, running 해제."""
     global _last_result, _running, _processed_count, _current_run
     with _lock:
         _running = False
@@ -96,15 +85,16 @@ def set_run_finished(result_summary: str = "", error: str = "") -> None:
         if _current_run is not None:
             _processed_count += 1
         _current_run = None
-        # 완료 후 선발 에이전트 상태를 done으로 유지 (휴게실 복귀는 다음 런 시작 시)
+        for ag in _all_agents:
+            ag.state = "idle"
 
 
 def set_idle() -> None:
-    """대기 상태로 초기화 (모든 에이전트 idle, current_run 없음)."""
-    global _current_run, _agents
+    """대기 상태로 초기화."""
+    global _current_run
     with _lock:
         _current_run = None
-        for ag in _agents:
+        for ag in _all_agents:
             ag.state = "idle"
 
 
@@ -121,27 +111,18 @@ def get_snapshot() -> dict:
     except Exception:
         usage = {}
     with _lock:
-        # 선발된 에이전트 id 세트 (작업실 표시 기준)
-        active_ids = {a.id for a in _agents}
-        # 선발 에이전트 상태 조회용 맵
-        active_state_map = {a.id: a.state for a in _agents}
-
         out = {
             "running": _running,
             # all_agents: 항상 전체 에이전트 목록 (휴게실/작업실 구분용)
+            # running=True면 전체 에이전트 active=True (작업실), False면 전체 휴게실
             "all_agents": [
                 {
                     "id": a.id,
                     "role": a.role,
-                    "state": active_state_map.get(a.id, "idle"),
-                    "active": a.id in active_ids,
+                    "state": a.state,
+                    "active": _running,
                 }
                 for a in _all_agents
-            ],
-            # agents: 하위 호환 (선발된 에이전트만)
-            "agents": [
-                {"id": a.id, "role": a.role, "state": a.state}
-                for a in _agents
             ],
             "current_run": (
                 {
