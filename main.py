@@ -105,6 +105,8 @@ AGENT_HEADERS = [
     "[바이스(Vice) — PM]",
     "[플뢰르(Fleur) — Dev]",
     "[베델(Bethel) — QA]",
+    # "[아주르(Azure) — UI Designer]",
+    # "[엘시(Elcy) — UI Publisher]",
 ]
 
 AGENT_COUNT = len(AGENT_HEADERS)
