@@ -17,6 +17,10 @@
       --idle: #4a4a6a;
       --working: #ffc107;
       --done: #4caf50;
+      --section-lounge: #1e1e3a;
+      --section-office: #0d2a1a;
+      --label-lounge: #6c5ce7;
+      --label-office: #00b894;
     }
     * { box-sizing: border-box; }
     body {
@@ -37,6 +41,8 @@
       text-shadow: 2px 2px 0 var(--border);
       margin-bottom: 16px;
     }
+
+    /* ─── 헤더 ─── */
     .header {
       display: flex;
       flex-wrap: wrap;
@@ -46,7 +52,6 @@
       padding: 12px;
       background: var(--panel);
       border: 4px solid var(--border);
-      border-radius: 0;
     }
     .header .stat {
       padding: 4px 8px;
@@ -54,61 +59,6 @@
       border: 2px solid var(--border);
     }
     .header .stat span { color: var(--pixel); }
-    .agents {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-      gap: 1rem;
-      margin-bottom: 20px;
-    }
-    .agent-card {
-      background: var(--panel);
-      border: 4px solid var(--border);
-      padding: 12px;
-      text-align: center;
-      min-width: 0;
-    }
-    .agent-card.idle { border-color: var(--idle); }
-    .agent-card.working { border-color: var(--working); animation: blink 0.8s ease-in-out infinite; }
-    .agent-card.done { border-color: var(--done); }
-    @keyframes blink {
-      50% { opacity: 0.85; box-shadow: 0 0 12px var(--working); }
-    }
-    .agent-avatar {
-      width: 64px;
-      height: 64px;
-      margin: 0 auto 8px;
-      image-rendering: pixelated;
-      background: var(--bg);
-      border: 2px solid var(--border);
-      display: grid;
-      grid-template-columns: repeat(8, 1fr);
-      grid-template-rows: repeat(8, 1fr);
-    }
-    .agent-avatar .pixel { background: currentColor; }
-    .agent-avatar.manager .pixel { color: #6c5ce7; }
-    .agent-avatar.developer .pixel { color: #00b894; }
-    .agent-avatar.qa_engineer .pixel { color: #e17055; }
-    .agent-avatar.default .pixel { color: var(--pixel); }
-    .agent-name { font-size: 8px; margin-bottom: 6px; word-break: break-word; }
-    .agent-state {
-      font-size: 8px;
-      padding: 4px 6px;
-      display: inline-block;
-      border: 2px solid;
-    }
-    .agent-state.idle { color: var(--idle); border-color: var(--idle); }
-    .agent-state.working { color: var(--working); border-color: var(--working); }
-    .agent-state.done { color: var(--done); border-color: var(--done); }
-    .last-result {
-      padding: 12px;
-      background: var(--panel);
-      border: 4px solid var(--border);
-      font-size: 13px;
-      word-break: break-all;
-      max-height: 160px;
-      overflow-y: auto;
-    }
-    .last-result.empty { color: var(--idle); }
     .run-form {
       display: flex;
       gap: 8px;
@@ -136,6 +86,8 @@
     }
     .run-form button:hover { opacity: 0.9; }
     .run-form button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ─── 사용량 패널 ─── */
     .usage-panel {
       padding: 12px;
       margin-bottom: 20px;
@@ -151,10 +103,147 @@
     .usage-panel .bar.over { background: var(--pixel); }
     .usage-panel .reset-btn { font-family: 'Noto Sans KR', sans-serif; font-size: 12px; padding: 6px 10px; background: var(--border); color: var(--text); border: 2px solid var(--pixel); cursor: pointer; }
     .usage-panel .reset-btn:hover { opacity: 0.9; }
+
+    /* ─── 섹션 공통 ─── */
+    .section {
+      margin-bottom: 20px;
+    }
+    .section-label {
+      font-size: 9px;
+      letter-spacing: 2px;
+      padding: 4px 8px;
+      display: inline-block;
+      margin-bottom: 8px;
+      border: 2px solid;
+    }
+    .section-label.lounge {
+      color: var(--label-lounge);
+      border-color: var(--label-lounge);
+      background: rgba(108, 92, 231, 0.1);
+    }
+    .section-label.office {
+      color: var(--label-office);
+      border-color: var(--label-office);
+      background: rgba(0, 184, 148, 0.1);
+    }
+    .section-body {
+      padding: 12px;
+      border: 4px solid;
+      min-height: 100px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 12px;
+      align-content: start;
+    }
+    .section-body.lounge {
+      background: var(--section-lounge);
+      border-color: var(--label-lounge);
+    }
+    .section-body.office {
+      background: var(--section-office);
+      border-color: var(--label-office);
+    }
+    .section-empty {
+      color: var(--idle);
+      font-size: 9px;
+      letter-spacing: 1px;
+      align-self: center;
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 16px 0;
+    }
+
+    /* ─── 에이전트 카드 ─── */
+    .agent-card {
+      background: var(--panel);
+      border: 4px solid var(--border);
+      padding: 12px;
+      text-align: center;
+      min-width: 0;
+      position: relative;
+    }
+    .agent-card.idle  { border-color: var(--idle); }
+    .agent-card.working {
+      border-color: var(--working);
+      animation: pulse 0.8s ease-in-out infinite;
+      z-index: 1;
+    }
+    .agent-card.done  { border-color: var(--done); }
+
+    /* 작업실 내 working 카드: 더 강한 강조 */
+    .section-body.office .agent-card.working {
+      box-shadow: 0 0 0 2px var(--working), 0 0 16px var(--working);
+      animation: pulse-office 0.6s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      50% { opacity: 0.85; box-shadow: 0 0 8px var(--working); }
+    }
+    @keyframes pulse-office {
+      0%   { box-shadow: 0 0 0 2px var(--working), 0 0 8px var(--working); }
+      50%  { box-shadow: 0 0 0 4px var(--working), 0 0 20px var(--working); opacity: 0.9; }
+      100% { box-shadow: 0 0 0 2px var(--working), 0 0 8px var(--working); }
+    }
+
+    /* 픽셀 깜빡임 전환 애니메이션 */
+    @keyframes pixel-in {
+      0%   { opacity: 0; transform: scale(0.85); }
+      40%  { opacity: 1; transform: scale(1.04); }
+      60%  { opacity: 0.7; transform: scale(0.97); }
+      80%  { opacity: 1; transform: scale(1.01); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+    .agent-card.entering {
+      animation: pixel-in 0.35s steps(4, end) forwards;
+    }
+
+    /* ─── 에이전트 아바타 ─── */
+    .agent-avatar {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 8px;
+      image-rendering: pixelated;
+      background: var(--bg);
+      border: 2px solid var(--border);
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      grid-template-rows: repeat(8, 1fr);
+    }
+    .agent-avatar .pixel { background: currentColor; }
+    .agent-avatar.manager        .pixel { color: #6c5ce7; }
+    .agent-avatar.developer      .pixel { color: #00b894; }
+    .agent-avatar.qa_engineer    .pixel { color: #e17055; }
+    .agent-avatar.ui_designer    .pixel { color: #00cec9; }
+    .agent-avatar.devils_advocate .pixel { color: #fd79a8; }
+    .agent-avatar.default        .pixel { color: var(--pixel); }
+
+    .agent-name { font-size: 8px; margin-bottom: 6px; word-break: break-word; }
+    .agent-state {
+      font-size: 8px;
+      padding: 3px 5px;
+      display: inline-block;
+      border: 2px solid;
+    }
+    .agent-state.idle    { color: var(--idle);    border-color: var(--idle); }
+    .agent-state.working { color: var(--working); border-color: var(--working); }
+    .agent-state.done    { color: var(--done);    border-color: var(--done); }
+
+    /* ─── 마지막 결과 ─── */
+    .last-result {
+      padding: 12px;
+      background: var(--panel);
+      border: 4px solid var(--border);
+      font-size: 13px;
+      word-break: break-all;
+      max-height: 160px;
+      overflow-y: auto;
+    }
+    .last-result.empty { color: var(--idle); }
   </style>
 </head>
 <body>
   <h1>AGENT TEAM DASHBOARD</h1>
+
   <div class="header">
     <div class="stat">REPO: <span id="github-repo">-</span></div>
     <div class="stat">RUN: <span id="run-status">대기 중</span></div>
@@ -165,6 +254,7 @@
       <button type="button" id="run-btn">RUN</button>
     </div>
   </div>
+
   <div class="usage-panel" id="usage-panel">
     <div class="row">
       <span>TOKENS: <span id="usage-tokens">0</span><span id="usage-token-limit"></span></span>
@@ -175,62 +265,79 @@
     <div class="row bar-row" id="usage-bar-row" style="display: none;">
       <div class="bar-wrap"><div class="bar" id="usage-bar" style="width: 0%;"></div></div>
     </div>
-    <div class="row" id="usage-over-msg" style="display: none;"><span style="color: var(--pixel);">USAGE LIMIT EXCEEDED — RUN disabled. Reset or raise limit in .env</span></div>
+    <div class="row" id="usage-over-msg" style="display: none;">
+      <span style="color: var(--pixel);">USAGE LIMIT EXCEEDED — RUN disabled. Reset or raise limit in .env</span>
+    </div>
   </div>
-  <div class="agents" id="agents-container"></div>
+
+  <!-- 작업실: 선발된 에이전트 -->
+  <div class="section" id="office-section">
+    <div class="section-label office">▶ 작업실</div>
+    <div class="section-body office" id="office-body">
+      <div class="section-empty">대기 중 — 이슈가 시작되면 선발 에이전트가 여기로 이동합니다</div>
+    </div>
+  </div>
+
+  <!-- 휴게실: 비선발 에이전트 -->
+  <div class="section" id="lounge-section">
+    <div class="section-label lounge">☕ 휴게실</div>
+    <div class="section-body lounge" id="lounge-body">
+      <div class="section-empty">Loading...</div>
+    </div>
+  </div>
+
   <div class="last-result empty" id="last-result">-</div>
 
   <script>
-    const POLL_MS = 60000;
-    const agentsEl = document.getElementById('agents-container');
-    const githubRepoEl = document.getElementById('github-repo');
-    const runStatusEl = document.getElementById('run-status');
-    const issueNumEl = document.getElementById('issue-num');
-    const processedCountEl = document.getElementById('processed-count');
-    const lastResultEl = document.getElementById('last-result');
-    const issueInputEl = document.getElementById('issue-input');
-    const runBtnEl = document.getElementById('run-btn');
-    const usagePanelEl = document.getElementById('usage-panel');
-    const usageTokensEl = document.getElementById('usage-tokens');
+    const POLL_MS_IDLE    = 60000;
+    const POLL_MS_RUNNING = 5000;
+    let pollTimer = null;
+
+    const githubRepoEl      = document.getElementById('github-repo');
+    const runStatusEl       = document.getElementById('run-status');
+    const issueNumEl        = document.getElementById('issue-num');
+    const processedCountEl  = document.getElementById('processed-count');
+    const lastResultEl      = document.getElementById('last-result');
+    const issueInputEl      = document.getElementById('issue-input');
+    const runBtnEl          = document.getElementById('run-btn');
+    const usagePanelEl      = document.getElementById('usage-panel');
+    const usageTokensEl     = document.getElementById('usage-tokens');
     const usageTokenLimitEl = document.getElementById('usage-token-limit');
-    const usageCallsEl = document.getElementById('usage-calls');
-    const usageCallLimitEl = document.getElementById('usage-call-limit');
-    const usageCostEl = document.getElementById('usage-cost');
-    const usageBarEl = document.getElementById('usage-bar');
-    const usageBarRowEl = document.getElementById('usage-bar-row');
-    const usageOverMsgEl = document.getElementById('usage-over-msg');
-    const usageResetBtnEl = document.getElementById('usage-reset-btn');
+    const usageCallsEl      = document.getElementById('usage-calls');
+    const usageCallLimitEl  = document.getElementById('usage-call-limit');
+    const usageCostEl       = document.getElementById('usage-cost');
+    const usageBarEl        = document.getElementById('usage-bar');
+    const usageBarRowEl     = document.getElementById('usage-bar-row');
+    const usageOverMsgEl    = document.getElementById('usage-over-msg');
+    const usageResetBtnEl   = document.getElementById('usage-reset-btn');
+    const officBodyEl       = document.getElementById('office-body');
+    const loungeBodyEl      = document.getElementById('lounge-body');
+
+    // 이전 렌더 상태 (카드 재사용 — 불필요한 DOM 재생성 방지)
+    let prevActiveIds = new Set();
 
     function avatarClass(id) {
       const k = (id || '').toLowerCase();
-      if (k.includes('manager')) return 'manager';
-      if (k.includes('developer') || k.includes('dev')) return 'developer';
-      if (k.includes('qa') || k.includes('engineer')) return 'qa_engineer';
+      if (k.includes('manager'))                              return 'manager';
+      if (k.includes('developer') || k.includes('dev'))      return 'developer';
+      if (k.includes('qa') || k.includes('engineer'))        return 'qa_engineer';
+      if (k.includes('ui') || k.includes('designer') || k.includes('azure')) return 'ui_designer';
+      if (k.includes('devil') || k.includes('advocate') || k.includes('elcy')) return 'devils_advocate';
       return 'default';
     }
 
-    function renderAgents(agents) {
-      if (!Array.isArray(agents) || agents.length === 0) {
-        agentsEl.innerHTML = '<p class="agent-name">No agents</p>';
-        return;
-      }
-      agentsEl.innerHTML = agents.map(a => {
-        const state = (a.state || 'idle').toLowerCase();
-        const ac = avatarClass(a.id);
-        return `
-          <div class="agent-card ${state}">
-            <div class="agent-avatar ${ac}" aria-hidden="true">
-              ${Array.from({ length: 64 }, (_, i) => {
-                const row = Math.floor(i / 8), col = i % 8;
-                const fill = (row >= 2 && row <= 5 && col >= 2 && col <= 5) || (row === 3 && (col === 2 || col === 5)) || (row === 4 && (col === 2 || col === 5)) || (row === 5 && col >= 2 && col <= 5);
-                return fill ? '<span class="pixel"></span>' : '<span></span>';
-              }).join('')}
-            </div>
-            <div class="agent-name">${escapeHtml(a.role || a.id)}</div>
-            <div class="agent-state ${state}">${state.toUpperCase()}</div>
-          </div>`;
-      }).join('');
-    }
+    const AVATAR_PIXELS = (() => {
+      const cells = Array.from({ length: 64 }, (_, i) => {
+        const row = Math.floor(i / 8), col = i % 8;
+        const fill =
+          (row >= 2 && row <= 5 && col >= 2 && col <= 5) ||
+          (row === 3 && (col === 2 || col === 5)) ||
+          (row === 4 && (col === 2 || col === 5)) ||
+          (row === 5 && col >= 2 && col <= 5);
+        return fill ? '<span class="pixel"></span>' : '<span></span>';
+      });
+      return cells.join('');
+    })();
 
     function escapeHtml(s) {
       const div = document.createElement('div');
@@ -238,28 +345,75 @@
       return div.innerHTML;
     }
 
+    function makeCard(a, entering) {
+      const state = (a.state || 'idle').toLowerCase();
+      const ac    = avatarClass(a.id);
+      const enterClass = entering ? ' entering' : '';
+      return `
+        <div class="agent-card ${state}${enterClass}" data-id="${escapeHtml(a.id)}">
+          <div class="agent-avatar ${ac}" aria-hidden="true">${AVATAR_PIXELS}</div>
+          <div class="agent-name">${escapeHtml(a.role || a.id)}</div>
+          <div class="agent-state ${state}">${state.toUpperCase()}</div>
+        </div>`;
+    }
+
+    function renderRooms(allAgents, running) {
+      const activeAgents  = allAgents.filter(a => a.active);
+      const loungeAgents  = allAgents.filter(a => !a.active);
+
+      const newActiveIds = new Set(activeAgents.map(a => a.id));
+
+      // 작업실
+      if (activeAgents.length === 0) {
+        officBodyEl.innerHTML = '<div class="section-empty">대기 중 — 이슈가 시작되면 선발 에이전트가 여기로 이동합니다</div>';
+      } else {
+        // working 에이전트를 앞으로, 나머지는 순서 유지
+        const sorted = [
+          ...activeAgents.filter(a => a.state === 'working'),
+          ...activeAgents.filter(a => a.state !== 'working'),
+        ];
+        officBodyEl.innerHTML = sorted.map(a => {
+          const entering = !prevActiveIds.has(a.id);
+          return makeCard(a, entering);
+        }).join('');
+      }
+
+      // 휴게실
+      if (loungeAgents.length === 0 && activeAgents.length > 0) {
+        loungeBodyEl.innerHTML = '<div class="section-empty">전원 작업 중</div>';
+      } else if (loungeAgents.length === 0) {
+        loungeBodyEl.innerHTML = '<div class="section-empty">Loading...</div>';
+      } else {
+        loungeBodyEl.innerHTML = loungeAgents.map(a => makeCard(a, false)).join('');
+      }
+
+      prevActiveIds = newActiveIds;
+    }
+
     function updateUI(data) {
-      renderAgents(data.agents || []);
-      githubRepoEl.textContent = data.github_repo || '(not set)';
-      runStatusEl.textContent = data.running ? 'RUNNING' : '대기 중';
+      const allAgents = data.all_agents || data.agents || [];
+      renderRooms(allAgents, !!data.running);
+
+      githubRepoEl.textContent    = data.github_repo || '(not set)';
+      runStatusEl.textContent     = data.running ? 'RUNNING' : '대기 중';
       const run = data.current_run;
-      issueNumEl.textContent = run ? '#' + run.issue_number : '-';
+      issueNumEl.textContent      = run ? '#' + run.issue_number : '-';
       processedCountEl.textContent = String(data.processed_count ?? 0);
-      lastResultEl.textContent = data.last_result || '-';
+      lastResultEl.textContent    = data.last_result || '-';
       lastResultEl.classList.toggle('empty', !data.last_result);
 
-      const usage = data.usage || {};
+      const usage       = data.usage || {};
       const totalTokens = usage.total_tokens ?? 0;
-      const calls = usage.calls ?? 0;
+      const calls       = usage.calls ?? 0;
       const limitTokens = usage.limit_tokens;
-      const limitCalls = usage.limit_calls;
-      const over = !!usage.limit_exceeded;
+      const limitCalls  = usage.limit_calls;
+      const over        = !!usage.limit_exceeded;
 
-      usageTokensEl.textContent = totalTokens.toLocaleString();
+      usageTokensEl.textContent     = totalTokens.toLocaleString();
       usageTokenLimitEl.textContent = limitTokens != null ? ' / ' + limitTokens.toLocaleString() : '';
-      usageCallsEl.textContent = calls;
-      usageCallLimitEl.textContent = limitCalls != null ? ' / ' + limitCalls : '';
-      usageCostEl.textContent = (usage.cost_estimate_usd ?? 0).toFixed(2);
+      usageCallsEl.textContent      = calls;
+      usageCallLimitEl.textContent  = limitCalls != null ? ' / ' + limitCalls : '';
+      usageCostEl.textContent       = (usage.cost_estimate_usd ?? 0).toFixed(2);
 
       if (limitTokens != null && limitTokens > 0) {
         usageBarRowEl.style.display = 'flex';
@@ -274,11 +428,16 @@
       runBtnEl.disabled = !!data.running || over;
     }
 
+    function schedulePoll(isRunning) {
+      if (pollTimer) clearTimeout(pollTimer);
+      pollTimer = setTimeout(poll, isRunning ? POLL_MS_RUNNING : POLL_MS_IDLE);
+    }
+
     function poll() {
       fetch('/api/status')
         .then(r => r.json())
-        .then(updateUI)
-        .catch(() => { runStatusEl.textContent = 'ERR'; });
+        .then(data => { updateUI(data); schedulePoll(!!data.running); })
+        .catch(() => { runStatusEl.textContent = 'ERR'; schedulePoll(false); });
     }
 
     runBtnEl.addEventListener('click', () => {
@@ -303,7 +462,6 @@
     });
 
     poll();
-    setInterval(poll, POLL_MS);
   </script>
 </body>
 </html>

@@ -59,7 +59,9 @@ def _before_llm_call(context):
     agent_role = getattr(getattr(context, "agent", None), "role", "?")
     iteration = getattr(context, "iterations", "?")
     msg_count = len(getattr(context, "messages", None) or [])
-    print(f"  [LLM 호출] agent={agent_role}, iteration={iteration}, messages={msg_count}, input_tokens≈{input_tokens}")
+    agent_obj = getattr(context, "agent", None)
+    model_name = getattr(getattr(agent_obj, "llm", None), "model", "?")
+    print(f"  [LLM 호출] agent={agent_role} [{model_name}], iteration={iteration}, messages={msg_count}, input_tokens≈{input_tokens}")
     return None
 
 

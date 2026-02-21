@@ -5,15 +5,28 @@ tasks/tasks.py
 태스크는 실행 시점에 이슈 정보를 받아 동적으로 생성되며, 특정 프레임워크가 아닌 스펙 기반으로 동작합니다.
 
 태스크 순서 (UI 포함 전체 플로우):
-  1. create_issue_analysis_task   — 바이스: 스펙 작성
+  1. create_issue_analysis_task   — 바이스: 스펙 작성 + 팀 구성 JSON 출력
   2. create_ui_design_task        — 아주르: 디자인+퍼블리싱 통합
   3. create_dev_task              — 플뢰르: 코드 구현
   4. create_devils_advocate_task  — 엘시: 비판적 검토
   5. create_qa_task               — 베델: 코드 품질 + 사용자 관점 최종 검증
+
+TASK_FACTORY: 에이전트 ID → 태스크 생성 함수 매핑 (동적 팀 구성에 사용)
+AGENT_HEADER_MAP: 에이전트 ID → 이슈 댓글 헤더 매핑 (댓글 누락 검증에 사용)
 """
 
 from crewai import Task
 from agents.agents import manager_agent, dev_agent, qa_agent, ui_designer_agent, ui_publisher_agent
+
+
+# 에이전트 ID → 이슈 댓글 헤더 문자열
+AGENT_HEADER_MAP: dict[str, str] = {
+    "manager": "[바이스(Vice) — PM]",
+    "azure":   "[아주르(Azure) — UI Designer & Publisher]",
+    "dev":     "[플뢰르(Fleur) — Dev]",
+    "elcy":    "[엘시(Elcy) — Devil's Advocate]",
+    "qa":      "[베델(Bethel) — QA]",
+}
 
 
 def create_issue_analysis_task(issue_number: int) -> Task:
@@ -39,11 +52,22 @@ def create_issue_analysis_task(issue_number: int) -> Task:
             6. 반드시 comment_github_issue 툴을 호출하여 이슈 #{issue_number}에 분석 결과와 기술 스펙 전체를 댓글로 남긴다.
                댓글 본문 맨 앞에 "**[바이스(Vice) — PM]**" 헤더를 붙인다. 댓글을 남기지 않으면 작업이 완료된 것이 아니다.
             7. (docs/issues 존재 시) 요약을 docs/issues/issue-{issue_number}.md 에 write_github_file로 남긴다.
+            8. 댓글 본문 마지막에 반드시 아래 형식의 JSON 블록을 포함한다.
+               이 JSON은 다음 단계에서 팀을 동적으로 구성하는 데 사용된다.
+               사용 가능한 에이전트: azure(UI 디자인+퍼블리싱), dev(코드 구현), elcy(비판적 검토), qa(코드 품질+UX 검증)
+               예시:
+               ```json
+               {{"agents": ["dev", "qa"], "reason": "UI 변경 없는 버그 수정이므로 개발·QA만 필요"}}
+               ```
+               - UI/디자인 작업이 포함된 경우에만 "azure"를 포함한다.
+               - 기술 선택이 복잡하거나 리스크가 있는 경우 "elcy"를 포함한다.
+               - 단순 문서/설정 변경이라면 ["qa"]만으로도 충분하다.
         """,
         expected_output="""
             - 이슈 유형과 요약
             - 기술 스펙: 사용 스택(언어·프레임워크), 구현 범위, 산출물(파일·경로), 컨벤션
             - GitHub 이슈 #{issue_number}에 "[바이스(Vice) — PM]" 헤더가 포함된 댓글 작성 완료
+            - 댓글 마지막에 ```json {{"agents": [...], "reason": "..."}} ``` 블록 포함
         """,
         agent=manager_agent,
     )
@@ -197,3 +221,17 @@ def create_devils_advocate_task(issue_number: int, target_branch: str) -> Task:
         """,
         agent=ui_publisher_agent,
     )
+
+
+# ─────────────────────────────────────────────
+# 동적 팀 구성용 팩토리 매핑
+# main.py의 _run_dynamic_crew()에서 에이전트 ID로 태스크를 생성할 때 사용
+# azure / elcy / dev 는 브랜치 이름을 추가 인자로 받으므로 main.py에서 직접 분기 처리
+# ─────────────────────────────────────────────
+TASK_FACTORY: dict = {
+    "manager": create_issue_analysis_task,   # (issue_number)
+    "azure":   create_ui_design_task,        # (issue_number, design_branch)
+    "dev":     create_dev_task,              # (issue_number, feature_branch)
+    "elcy":    create_devils_advocate_task,  # (issue_number, target_branch)
+    "qa":      create_qa_task,              # (issue_number, feature_branch) — branch는 선택
+}
