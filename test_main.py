@@ -30,9 +30,9 @@ if _env_path.exists():
 TEST_AGENTS = [
     {"id": "manager", "name": "바이스(PM)", "description": "매니저 에이전트"},
     {"id": "dev", "name": "플뢰르(Dev)", "description": "개발 에이전트"},
-    {"id": "qa", "name": "베델(QA)", "description": "QA 에이전트"},
-    {"id": "ui_designer", "name": "아주르(UI Designer)", "description": "UI 디자이너 에이전트"},
-    {"id": "ui_publisher", "name": "엘시(UI Publisher)", "description": "UI 퍼블리셔 에이전트"},
+    {"id": "qa", "name": "베델(QA + UX)", "description": "QA + 실사용자 관점 검증 에이전트"},
+    {"id": "ui_designer", "name": "아주르(UI Designer & Publisher)", "description": "UI 디자인+퍼블리싱 통합 에이전트"},
+    {"id": "ui_publisher", "name": "엘시(Devil's Advocate)", "description": "기술 선택·방향 비판적 검토 에이전트"},
 ]
 
 # 테스트에서 선택할 수 있는 툴 이름 (실제 툴은 tools/ 모듈에서 로드)
@@ -49,11 +49,11 @@ TEST_TOOLS = [
 
 # 테스트에서 선택할 수 있는 태스크 유형
 TEST_TASKS = [
-    {"id": "issue_analysis", "name": "이슈 분석·스펙 작성", "description": "매니저 태스크"},
-    {"id": "dev_impl", "name": "구현·커밋·PR", "description": "개발 태스크"},
-    {"id": "qa_review", "name": "코드 리뷰·QA", "description": "QA 태스크"},
-    {"id": "ui_designer", "name": "디자인 스펙·스타일", "description": "UI Designer 태스크"},
-    {"id": "ui_publisher", "name": "웹 퍼블리싱·PR", "description": "UI Publisher 태스크"},
+    {"id": "issue_analysis", "name": "이슈 분석·스펙 작성", "description": "바이스(PM) 태스크"},
+    {"id": "ui_design", "name": "UI 디자인+퍼블리싱", "description": "아주르(UI Designer & Publisher) 태스크"},
+    {"id": "dev_impl", "name": "구현·커밋·PR", "description": "플뢰르(Dev) 태스크"},
+    {"id": "devils_advocate", "name": "비판적 검토·대안 제시", "description": "엘시(Devil's Advocate) 태스크"},
+    {"id": "qa_review", "name": "코드 리뷰·UX 검증·최종 판정", "description": "베델(QA + UX) 태스크"},
 ]
 
 
