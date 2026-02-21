@@ -226,10 +226,10 @@ def _run_manager_planning(issue_number: int, dashboard_callback=None) -> list[st
         try:
             result = fut.result(timeout=CREW_TIMEOUT_SECONDS)
         except FuturesTimeoutError:
-            print(f"[1단계] 매니저 플래닝 타임아웃 — 기본 에이전트 세트 사용: {_DEFAULT_AGENT_IDS}")
+            print(f"[1단계] 매니저 플래닝 타임아웃 - 기본 에이전트 세트 사용: {_DEFAULT_AGENT_IDS}")
             return _DEFAULT_AGENT_IDS
         except Exception as e:
-            print(f"[1단계] 매니저 플래닝 실패: {e} — 기본 에이전트 세트 사용: {_DEFAULT_AGENT_IDS}")
+            print(f"[1단계] 매니저 플래닝 실패: {e} - 기본 에이전트 세트 사용: {_DEFAULT_AGENT_IDS}")
             return _DEFAULT_AGENT_IDS
 
     agent_ids = _parse_agent_ids_from_result(result)
@@ -237,7 +237,7 @@ def _run_manager_planning(issue_number: int, dashboard_callback=None) -> list[st
         print(f"[1단계] 매니저 선발 에이전트: {agent_ids}")
         return agent_ids
     else:
-        print(f"[1단계] JSON 파싱 실패 — 기본 에이전트 세트 사용: {_DEFAULT_AGENT_IDS}")
+        print(f"[1단계] JSON 파싱 실패 - 기본 에이전트 세트 사용: {_DEFAULT_AGENT_IDS}")
         return _DEFAULT_AGENT_IDS
 
 
@@ -256,7 +256,7 @@ def _run_dynamic_crew(
         factory_fn = TASK_FACTORY.get(agent_id)
         agent_obj = AGENT_OBJECT_MAP.get(agent_id)
         if not factory_fn or not agent_obj:
-            print(f"[경고] 알 수 없는 에이전트 ID '{agent_id}' — 건너뜀")
+            print(f"[경고] 알 수 없는 에이전트 ID '{agent_id}' - 건너뜀")
             continue
         if agent_id == "azure":
             tasks.append(factory_fn(issue_number, design_branch))
@@ -267,7 +267,7 @@ def _run_dynamic_crew(
         agents.append(agent_obj)
 
     if not tasks:
-        print("[2단계] 실행할 태스크 없음 — 건너뜀")
+        print("[2단계] 실행할 태스크 없음 - 건너뜀")
         return None
 
     id_list = ", ".join(selected_agent_ids)
@@ -395,7 +395,7 @@ def watch_new_issues(interval_seconds: int = 300, process_fn=None):
                     except Exception:
                         pass
 
-            print(f"이슈 조회: {len(issues)}건 (신규 {new_count}건) — {interval_seconds}초 후 재조회 (누적 처리: {len(processed_issues)})")
+            print(f"이슈 조회: {len(issues)}건 (신규 {new_count}건) - {interval_seconds}초 후 재조회 (누적 처리: {len(processed_issues)})")
             time.sleep(interval_seconds)
 
         except KeyboardInterrupt:
