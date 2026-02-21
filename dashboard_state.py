@@ -44,11 +44,20 @@ def init_agents_from_crew(crew_agents: list[Any]) -> None:
             _agents.append(AgentState(id=aid, role=role, state="idle"))
 
 
-def set_run_started(issue_number: int, started_at: str) -> None:
-    """크루 kickoff 직전: 현재 런 설정, 0번 에이전트 working."""
-    global _current_run, _running
+def set_run_started(issue_number: int, started_at: str, run_agents: list[Any] | None = None) -> None:
+    """크루 kickoff 직전: 현재 런 설정, 0번 에이전트 working.
+    run_agents가 주어지면 해당 런의 실제 에이전트 목록으로 _agents를 재초기화한다.
+    동적 팀 구성 시 런마다 에이전트 수가 달라지므로 반드시 선발 목록을 전달해야 한다.
+    """
+    global _current_run, _running, _agents
     with _lock:
         _running = True
+        if run_agents is not None:
+            _agents = []
+            for i, a in enumerate(run_agents):
+                role = getattr(a, "role", f"Agent {i}")
+                aid = (role.lower().replace(" ", "_").replace("/", "_") or f"agent_{i}")[:50]
+                _agents.append(AgentState(id=aid, role=role, state="idle"))
         _current_run = CurrentRun(
             issue_number=issue_number,
             current_task_index=0,

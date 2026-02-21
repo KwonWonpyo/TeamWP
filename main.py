@@ -440,13 +440,46 @@ def run_dashboard(port: int = 3000, watch: bool = False, interval: int = 300):
     def process_issue_with_dashboard(issue_number: int):
         task_index[0] = 0
         started = datetime.now(timezone.utc).isoformat()
-        set_run_started(issue_number, started)
+
+        # 1단계: 매니저 플래닝으로 선발 에이전트 목록 먼저 확정
+        # 대시보드 에이전트 목록을 실제 런 에이전트로 재초기화하기 위해 직접 호출
+        repo = _get_repo()
+        before_count = _count_comments(repo, issue_number)
+
         try:
-            result = process_issue(issue_number, dashboard_callback=make_task_callback())
+            selected_ids = _run_manager_planning(issue_number)
+        except Exception as e:
+            set_run_started(issue_number, started)
+            set_run_finished(error=f"매니저 플래닝 실패: {str(e)[:200]}")
+            _write_system_error_comment(repo, issue_number, f"매니저 플래닝 오류: {e}")
+            return
+
+        # 선발 에이전트(매니저 포함) 객체 목록 구성
+        dynamic_ids = [aid for aid in selected_ids if aid != "manager"]
+        all_ids = ["manager"] + dynamic_ids
+        run_agent_objects = [AGENT_OBJECT_MAP[aid] for aid in all_ids if aid in AGENT_OBJECT_MAP]
+
+        # 대시보드를 실제 런 에이전트로 재초기화 후 시작 상태 설정
+        set_run_started(issue_number, started, run_agents=run_agent_objects)
+
+        try:
+            result = None
+            if dynamic_ids:
+                result = _run_dynamic_crew(
+                    issue_number, dynamic_ids, dashboard_callback=make_task_callback()
+                )
+
+            # 댓글 검증
+            expected_headers = [AGENT_HEADER_MAP[aid] for aid in all_ids if aid in AGENT_HEADER_MAP]
+            missing = _find_missing_agents(repo, issue_number, before_count, expected_headers)
+            if missing:
+                _force_comment(repo, issue_number, missing, result)
+
             summary = _format_crew_result(result)
             set_run_finished(summary[:500] if len(summary) > 500 else summary)
         except Exception as e:
             set_run_finished(error=str(e)[:300])
+            _write_system_error_comment(repo, issue_number, str(e))
 
     def run_issue_background(issue_number: int):
         """API에서 호출 시 백그라운드 스레드로 실행."""

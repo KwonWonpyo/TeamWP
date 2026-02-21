@@ -88,6 +88,8 @@
     .agent-avatar.manager .pixel { color: #6c5ce7; }
     .agent-avatar.developer .pixel { color: #00b894; }
     .agent-avatar.qa_engineer .pixel { color: #e17055; }
+    .agent-avatar.ui_designer .pixel { color: #00cec9; }
+    .agent-avatar.devils_advocate .pixel { color: #fd79a8; }
     .agent-avatar.default .pixel { color: var(--pixel); }
     .agent-name { font-size: 8px; margin-bottom: 6px; word-break: break-word; }
     .agent-state {
@@ -181,7 +183,9 @@
   <div class="last-result empty" id="last-result">-</div>
 
   <script>
-    const POLL_MS = 60000;
+    const POLL_MS_IDLE = 60000;
+    const POLL_MS_RUNNING = 5000;
+    let pollTimer = null;
     const agentsEl = document.getElementById('agents-container');
     const githubRepoEl = document.getElementById('github-repo');
     const runStatusEl = document.getElementById('run-status');
@@ -206,6 +210,8 @@
       if (k.includes('manager')) return 'manager';
       if (k.includes('developer') || k.includes('dev')) return 'developer';
       if (k.includes('qa') || k.includes('engineer')) return 'qa_engineer';
+      if (k.includes('ui') || k.includes('designer') || k.includes('azure')) return 'ui_designer';
+      if (k.includes('devil') || k.includes('advocate') || k.includes('elcy')) return 'devils_advocate';
       return 'default';
     }
 
@@ -274,11 +280,16 @@
       runBtnEl.disabled = !!data.running || over;
     }
 
+    function schedulePoll(isRunning) {
+      if (pollTimer) clearTimeout(pollTimer);
+      pollTimer = setTimeout(poll, isRunning ? POLL_MS_RUNNING : POLL_MS_IDLE);
+    }
+
     function poll() {
       fetch('/api/status')
         .then(r => r.json())
-        .then(updateUI)
-        .catch(() => { runStatusEl.textContent = 'ERR'; });
+        .then(data => { updateUI(data); schedulePoll(!!data.running); })
+        .catch(() => { runStatusEl.textContent = 'ERR'; schedulePoll(false); });
     }
 
     runBtnEl.addEventListener('click', () => {
@@ -303,7 +314,6 @@
     });
 
     poll();
-    setInterval(poll, POLL_MS);
   </script>
 </body>
 </html>
