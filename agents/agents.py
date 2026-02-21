@@ -1,7 +1,7 @@
 """
 agents/agents.py
 
-매니저 + 개발/QA + UI Designer(겸 Publisher) + Devil's Advocate 에이전트 정의.
+각 에이전트 정의.
 작업 요청(이슈)에 명시된 스펙·스택을 따르며, 웹을 기본으로 하되 프레임워크에 한정하지 않습니다.
 
 에이전트 구성:
@@ -45,8 +45,11 @@ def _optional_tools():
 # ─────────────────────────────────────────────
 # LLM 설정 (.env의 OPENAI_API_KEY 사용)
 # Anthropic 쓰려면 "anthropic/claude-3-5-sonnet-20241022" + ANTHROPIC_API_KEY
+# 모델은 .env의 OPENAI_MODEL_* 환경 변수로 재정의 가능
 # ─────────────────────────────────────────────
-llm = LLM(model="openai/gpt-4o")
+llm_strong = LLM(model=os.getenv("OPENAI_MODEL_STRONG", "openai/gpt-4o"))       # 판단·설계: 바이스, 아주르, 플뢰르
+llm_fast   = LLM(model=os.getenv("OPENAI_MODEL_FAST",   "openai/gpt-4o-mini"))  # 체크리스트·검토: 베델
+llm_reason = LLM(model=os.getenv("OPENAI_MODEL_REASON", "openai/gpt-4o"))       # 논리 추론: 엘시 (o1-mini로 교체 가능)
 
 
 # ─────────────────────────────────────────────
@@ -73,7 +76,8 @@ manager_agent = Agent(
         ReadFileTool(),
         WriteFileTool(),
     ] + _optional_tools(),
-    llm=llm,
+    llm=llm_strong,
+    max_iter=5,
     verbose=False,
 )
 
@@ -102,7 +106,8 @@ dev_agent = Agent(
         CreatePRTool(),
         CommentIssueTool(),
     ] + _optional_tools(),
-    llm=llm,
+    llm=llm_strong,
+    max_iter=5,
     verbose=False,
 )
 
@@ -130,7 +135,8 @@ qa_agent = Agent(
         댓글 작성 시 반드시 맨 앞에 "**[베델(Bethel) — QA]**" 헤더를 붙입니다.
     """,
     tools=[ReadFileTool(), WriteFileTool(), CommentIssueTool(), GetIssueTool(), CreateIssueTool()],
-    llm=llm,
+    llm=llm_fast,
+    max_iter=5,
     verbose=False,
 )
 
@@ -166,7 +172,8 @@ ui_designer_agent = Agent(
         CreateBranchTool(),
         CreatePRTool(),
     ] + _optional_tools(),
-    llm=llm,
+    llm=llm_strong,
+    max_iter=5,
     verbose=False,
 )
 
@@ -199,6 +206,7 @@ ui_publisher_agent = Agent(
         CommentIssueTool(),
         CreateIssueTool(),
     ],
-    llm=llm,
+    llm=llm_reason,
+    max_iter=5,
     verbose=False,
 )

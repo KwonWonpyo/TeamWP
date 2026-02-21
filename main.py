@@ -17,6 +17,9 @@ import argparse
 import time
 import os
 import threading
+import json
+import re
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import datetime, timezone
 
 from pathlib import Path
@@ -45,11 +48,15 @@ register_usage_hooks()
 from crewai import Crew, Process
 from github import Auth, Github
 
-from agents.agents import manager_agent, dev_agent, qa_agent
+from agents.agents import manager_agent, dev_agent, qa_agent, ui_designer_agent, ui_publisher_agent
 from tasks.tasks import (
     create_issue_analysis_task,
     create_dev_task,
     create_qa_task,
+    create_ui_design_task,
+    create_devils_advocate_task,
+    TASK_FACTORY,
+    AGENT_HEADER_MAP,
 )
 
 # 이미 처리된 이슈 번호를 메모리에 저장 (재시작 시 초기화됨)
@@ -101,26 +108,30 @@ def _count_comments(repo, issue_number: int) -> int:
         return -1
 
 
-AGENT_HEADERS = [
-    "[바이스(Vice) — PM]",
-    "[플뢰르(Fleur) — Dev]",
-    "[베델(Bethel) — QA]",
-    # "[아주르(Azure) — UI Designer]",
-    # "[엘시(Elcy) — UI Publisher]",
-]
+# 폴백: 매니저 플래닝 실패 시 기본 에이전트 세트
+_DEFAULT_AGENT_IDS = ["dev", "qa"]
 
-AGENT_COUNT = len(AGENT_HEADERS)
+# 에이전트 ID → 실제 에이전트 객체 매핑
+AGENT_OBJECT_MAP = {
+    "manager": manager_agent,
+    "azure":   ui_designer_agent,
+    "dev":     dev_agent,
+    "elcy":    ui_publisher_agent,
+    "qa":      qa_agent,
+}
+
+CREW_TIMEOUT_SECONDS = 600  # 10분 초과 시 강제 종료
 
 
-def _find_missing_agents(repo, issue_number: int, before_count: int) -> list[str]:
+def _find_missing_agents(repo, issue_number: int, before_count: int, expected_headers: list[str]) -> list[str]:
     """crew 실행 후 새로 달린 댓글을 검사해, 헤더가 빠진 에이전트 목록을 반환한다."""
     try:
         comments = list(repo.get_issue(issue_number).get_comments())
         new_comments = comments[before_count:] if before_count >= 0 else comments
         new_bodies = "\n".join(c.body or "" for c in new_comments)
     except Exception:
-        return list(AGENT_HEADERS)
-    return [h for h in AGENT_HEADERS if h not in new_bodies]
+        return list(expected_headers)
+    return [h for h in expected_headers if h not in new_bodies]
 
 
 def _force_comment(repo, issue_number: int, missing_headers: list[str], crew_result) -> None:
@@ -149,29 +160,118 @@ def _force_comment(repo, issue_number: int, missing_headers: list[str], crew_res
         print(f"[보정 실패] 이슈 #{issue_number} 강제 댓글 작성 실패: {e}")
 
 
-def process_issue(issue_number: int, dashboard_callback=None):
-    """단일 이슈를 처리하는 크루 실행. 완료 후 댓글이 실제로 달렸는지 검증하고, 누락 시 강제 작성한다."""
-    print(f"\n{'='*50}")
-    print(f"[Start] Issue #{issue_number}")
-    print(f"{'='*50}\n")
+def _write_system_error_comment(repo, issue_number: int, reason: str) -> None:
+    """크루 실행 실패 또는 타임아웃 시 이슈에 시스템 에러 댓글을 작성한다."""
+    body = (
+        f"## [시스템] 에이전트 실행 실패\n\n"
+        f"> **사유**: {reason}\n\n"
+        f"담당자가 확인 후 재실행하거나 `agent-todo` 라벨을 다시 붙여 주세요."
+    )
+    try:
+        repo.get_issue(issue_number).create_comment(body)
+        print(f"[에러 댓글] 이슈 #{issue_number}에 시스템 에러 댓글 작성 완료.")
+    except Exception as e:
+        print(f"[에러 댓글 실패] {e}")
 
-    # 매니저 툴 목록 출력
-    tool_names = [getattr(t, "name", type(t).__name__) for t in manager_agent.tools]
-    print(f"[매니저 툴] {tool_names}")
 
-    # 실행 전 댓글 수 기록
-    repo = _get_repo()
-    before_count = _count_comments(repo, issue_number)
-    print(f"[검증] 실행 전 댓글 수: {before_count}")
+def _parse_agent_ids_from_result(result) -> list[str] | None:
+    """매니저 출력에서 JSON 에이전트 목록을 파싱한다. 실패 시 None 반환."""
+    text = ""
+    if isinstance(result, str):
+        text = result
+    elif hasattr(result, "raw_output"):
+        text = getattr(result, "raw_output", "") or ""
+    elif hasattr(result, "raw"):
+        text = getattr(result, "raw", "") or ""
+    else:
+        text = str(result)
 
+    # ```json ... ``` 블록 우선 탐색
+    match = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if not match:
+        # 중괄호 블록 전체 탐색 (마지막 JSON 우선)
+        candidates = re.findall(r"\{[^{}]*\"agents\"\s*:[^{}]*\}", text, re.DOTALL)
+        match_text = candidates[-1] if candidates else None
+    else:
+        match_text = match.group(1)
+
+    if not match_text:
+        return None
+
+    try:
+        data = json.loads(match_text)
+        agents = data.get("agents", [])
+        if isinstance(agents, list) and agents:
+            valid = [a for a in agents if a in TASK_FACTORY]
+            return valid if valid else None
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return None
+
+
+def _run_manager_planning(issue_number: int, dashboard_callback=None) -> list[str]:
+    """1단계: 매니저만 단독 실행해 팀 구성 JSON을 파싱한다. 실패 시 기본 세트 반환."""
+    print(f"[1단계] 매니저 플래닝 시작 (이슈 #{issue_number})")
+    task = create_issue_analysis_task(issue_number)
+    crew = Crew(
+        agents=[manager_agent],
+        tasks=[task],
+        process=Process.sequential,
+        verbose=False,
+        task_callback=dashboard_callback,
+    )
+
+    with ThreadPoolExecutor(max_workers=1) as ex:
+        fut = ex.submit(crew.kickoff)
+        try:
+            result = fut.result(timeout=CREW_TIMEOUT_SECONDS)
+        except FuturesTimeoutError:
+            print(f"[1단계] 매니저 플래닝 타임아웃 — 기본 에이전트 세트 사용: {_DEFAULT_AGENT_IDS}")
+            return _DEFAULT_AGENT_IDS
+        except Exception as e:
+            print(f"[1단계] 매니저 플래닝 실패: {e} — 기본 에이전트 세트 사용: {_DEFAULT_AGENT_IDS}")
+            return _DEFAULT_AGENT_IDS
+
+    agent_ids = _parse_agent_ids_from_result(result)
+    if agent_ids:
+        print(f"[1단계] 매니저 선발 에이전트: {agent_ids}")
+        return agent_ids
+    else:
+        print(f"[1단계] JSON 파싱 실패 — 기본 에이전트 세트 사용: {_DEFAULT_AGENT_IDS}")
+        return _DEFAULT_AGENT_IDS
+
+
+def _run_dynamic_crew(
+    issue_number: int,
+    selected_agent_ids: list[str],
+    dashboard_callback=None,
+):
+    """2단계: 선발된 에이전트로 동적 크루를 구성하고 실행한다."""
     feature_branch = f"feature/issue-{issue_number}"
-    tasks = [
-        create_issue_analysis_task(issue_number),
-        create_dev_task(issue_number, feature_branch),
-        create_qa_task(issue_number, feature_branch),
-    ]
-    agents = [manager_agent, dev_agent, qa_agent]
-    print("[매니저 → 개발 → QA] 실행 중...")
+    design_branch = f"design/issue-{issue_number}"
+
+    tasks = []
+    agents = []
+    for agent_id in selected_agent_ids:
+        factory_fn = TASK_FACTORY.get(agent_id)
+        agent_obj = AGENT_OBJECT_MAP.get(agent_id)
+        if not factory_fn or not agent_obj:
+            print(f"[경고] 알 수 없는 에이전트 ID '{agent_id}' — 건너뜀")
+            continue
+        if agent_id == "azure":
+            tasks.append(factory_fn(issue_number, design_branch))
+        elif agent_id in ("dev", "elcy", "qa"):
+            tasks.append(factory_fn(issue_number, feature_branch))
+        else:
+            tasks.append(factory_fn(issue_number))
+        agents.append(agent_obj)
+
+    if not tasks:
+        print("[2단계] 실행할 태스크 없음 — 건너뜀")
+        return None
+
+    id_list = ", ".join(selected_agent_ids)
+    print(f"[2단계] 동적 크루 실행: [{id_list}]")
 
     crew = Crew(
         agents=agents,
@@ -181,15 +281,52 @@ def process_issue(issue_number: int, dashboard_callback=None):
         task_callback=dashboard_callback,
     )
 
+    with ThreadPoolExecutor(max_workers=1) as ex:
+        fut = ex.submit(crew.kickoff)
+        try:
+            return fut.result(timeout=CREW_TIMEOUT_SECONDS)
+        except FuturesTimeoutError:
+            raise RuntimeError(f"크루 실행 시간 초과 ({CREW_TIMEOUT_SECONDS}초)")
+
+
+def process_issue(issue_number: int, dashboard_callback=None):
+    """단일 이슈를 처리하는 2단계 동적 크루 실행.
+    1단계: 매니저 플래닝 → 팀 구성 JSON 파싱
+    2단계: 선발 에이전트로 크루 실행
+    완료 후 댓글 누락 검증, 누락 시 보정 댓글 작성.
+    """
+    print(f"\n{'='*50}")
+    print(f"[Start] Issue #{issue_number}")
+    print(f"{'='*50}\n")
+
+    repo = _get_repo()
+    before_count = _count_comments(repo, issue_number)
+    print(f"[검증] 실행 전 댓글 수: {before_count}")
+
+    # 1단계: 매니저 플래닝 (댓글 callback은 1단계부터 전달)
     try:
-        result = crew.kickoff()
+        selected_ids = _run_manager_planning(issue_number, dashboard_callback)
     except Exception as e:
         from usage_tracking import send_discord_run_failed
         send_discord_run_failed(issue_number, str(e))
+        _write_system_error_comment(repo, issue_number, f"매니저 플래닝 오류: {e}")
         raise
 
+    # 2단계: 매니저를 제외한 선발 에이전트 실행
+    dynamic_ids = [aid for aid in selected_ids if aid != "manager"]
+
+    result = None
+    if dynamic_ids:
+        try:
+            result = _run_dynamic_crew(issue_number, dynamic_ids, dashboard_callback)
+        except Exception as e:
+            from usage_tracking import send_discord_run_failed
+            send_discord_run_failed(issue_number, str(e))
+            _write_system_error_comment(repo, issue_number, str(e))
+            raise
+
     readable = _format_crew_result(result)
-    print(f"\n[매니저] 완료.")
+    print(f"\n[완료] Issue #{issue_number}")
     print(f"{'='*50}")
     if len(readable) > 2000:
         print(readable[:2000] + "\n... (이하 생략)")
@@ -197,17 +334,19 @@ def process_issue(issue_number: int, dashboard_callback=None):
         print(readable)
     print(f"{'='*50}")
 
-    # 실행 후 댓글 검증: 각 에이전트 헤더가 새 댓글에 포함되어 있는지 확인
+    # 댓글 검증: 실행된 에이전트 헤더가 모두 달렸는지 확인
+    all_executed_ids = ["manager"] + dynamic_ids
+    expected_headers = [AGENT_HEADER_MAP[aid] for aid in all_executed_ids if aid in AGENT_HEADER_MAP]
     after_count = _count_comments(repo, issue_number)
     new_count = max(after_count - before_count, 0)
     print(f"[검증] 실행 후 댓글 수: {after_count} (신규 {new_count}개)")
 
-    missing = _find_missing_agents(repo, issue_number, before_count)
+    missing = _find_missing_agents(repo, issue_number, before_count, expected_headers)
     if missing:
         print(f"[검증] 댓글 누락 에이전트: {', '.join(missing)}. 보정 댓글을 작성합니다.")
         _force_comment(repo, issue_number, missing, result)
     else:
-        print(f"[검증] 모든 에이전트({AGENT_COUNT}명)가 정상적으로 댓글을 작성했습니다.")
+        print(f"[검증] 모든 에이전트({len(expected_headers)}명)가 정상적으로 댓글을 작성했습니다.")
 
     print()
     return result
@@ -279,8 +418,8 @@ def run_dashboard(port: int = 3000, watch: bool = False, interval: int = 300):
     )
     from dashboard.server import app, register_runner
 
-    # CREW_PM_ONLY면 매니저만, 아니면 매니저·개발·QA
-    agents_for_crew = [manager_agent, dev_agent, qa_agent]
+    # 대시보드 에이전트 초기화: 동적 팀 구성에서 사용될 수 있는 전체 에이전트 목록
+    agents_for_crew = list(AGENT_OBJECT_MAP.values())
     init_agents_from_crew(agents_for_crew)
 
     task_index = [0]  # mutable for closure

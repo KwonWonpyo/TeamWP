@@ -130,6 +130,18 @@ class CommentIssueTool(BaseTool):
         try:
             repo = get_github_client()
             issue = repo.get_issue(issue_number)
+
+            # 중복 댓글 방지: 댓글 첫 줄(**[헤더]** 패턴)이 이미 존재하면 스킵
+            first_line = comment.strip().splitlines()[0] if comment.strip() else ""
+            if first_line.startswith("**[") and "**" in first_line[2:]:
+                existing = list(issue.get_comments())
+                for c in existing:
+                    body_first = (c.body or "").strip().splitlines()[0] if (c.body or "").strip() else ""
+                    if body_first == first_line:
+                        return (
+                            f"이슈 #{issue_number}: '{first_line}' 헤더를 가진 댓글이 이미 존재합니다 — 중복 작성 생략."
+                        )
+
             issue.create_comment(comment)
             return f"이슈 #{issue_number}에 댓글이 추가되었습니다."
         except Exception as e:
