@@ -585,6 +585,7 @@ class ArchitectureRepository:
 
     - sqlite: ARCHITECTURE_DB_PATH
     - postgres: ARCHITECTURE_POSTGRES_DSN
+    - hybrid: postgres 우선, 실패 시 sqlite fallback
     """
 
     def __init__(
@@ -594,19 +595,53 @@ class ArchitectureRepository:
         backend: str | None = None,
         postgres_dsn: str | None = None,
     ):
-        backend_name = (backend or os.getenv("ARCHITECTURE_DB_BACKEND") or "sqlite").lower()
-        self.backend_name = backend_name
+        configured_backend = (backend or os.getenv("ARCHITECTURE_DB_BACKEND") or "sqlite").lower()
+        if configured_backend not in {"sqlite", "postgres", "hybrid"}:
+            raise ValueError("ARCHITECTURE_DB_BACKEND must be sqlite|postgres|hybrid")
 
-        if backend_name == "postgres":
-            dsn = postgres_dsn or os.getenv("ARCHITECTURE_POSTGRES_DSN")
-            if not dsn:
-                raise ValueError(
-                    "Postgres backend requires ARCHITECTURE_POSTGRES_DSN"
-                )
-            self.backend: RepositoryBackend = PostgresRepository(dsn)
-        else:
-            path = db_path or os.getenv("ARCHITECTURE_DB_PATH") or ".agent_architecture.db"
-            self.backend = SqliteRepository(path)
+        self.configured_backend = configured_backend
+        self.backend_name = configured_backend  # active backend name
+        self.fallback_reason = ""
+        self.sqlite_path = db_path or os.getenv("ARCHITECTURE_DB_PATH") or ".agent_architecture.db"
+        self.postgres_dsn = postgres_dsn or os.getenv("ARCHITECTURE_POSTGRES_DSN")
+
+        fallback_enabled = (
+            configured_backend == "hybrid"
+            or (os.getenv("ARCHITECTURE_DB_FALLBACK_SQLITE", "0").strip() == "1")
+        )
+
+        if configured_backend in {"postgres", "hybrid"}:
+            if not self.postgres_dsn:
+                if configured_backend == "postgres" and not fallback_enabled:
+                    raise ValueError("Postgres backend requires ARCHITECTURE_POSTGRES_DSN")
+                self.backend = SqliteRepository(self.sqlite_path)
+                self.backend_name = "sqlite"
+                self.fallback_reason = "postgres_dsn_missing"
+                return
+            try:
+                self.backend = PostgresRepository(self.postgres_dsn)
+                self.backend_name = "postgres"
+                return
+            except Exception as e:
+                if configured_backend == "postgres" and not fallback_enabled:
+                    raise
+                self.backend = SqliteRepository(self.sqlite_path)
+                self.backend_name = "sqlite"
+                self.fallback_reason = f"postgres_init_failed:{e}"
+                return
+
+        self.backend = SqliteRepository(self.sqlite_path)
+        self.backend_name = "sqlite"
+
+    def get_runtime_profile(self) -> dict:
+        return {
+            "configured_backend": self.configured_backend,
+            "active_backend": self.backend_name,
+            "fallback_active": bool(self.fallback_reason),
+            "fallback_reason": self.fallback_reason,
+            "sqlite_path": self.sqlite_path,
+            "postgres_configured": bool(self.postgres_dsn),
+        }
 
     def upsert_project(self, project: Project) -> Project:
         return self.backend.upsert_project(project)

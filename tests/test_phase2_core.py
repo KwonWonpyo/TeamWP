@@ -64,6 +64,21 @@ class Phase2CoreTests(unittest.TestCase):
 
         os.remove(tmp.name)
 
+    def test_hybrid_backend_falls_back_to_sqlite_without_postgres_dsn(self):
+        tmp = tempfile.NamedTemporaryFile(delete=False)
+        tmp.close()
+        repo = ArchitectureRepository(
+            db_path=tmp.name,
+            backend="hybrid",
+            postgres_dsn=None,
+        )
+        profile = repo.get_runtime_profile()
+        self.assertEqual(profile["configured_backend"], "hybrid")
+        self.assertEqual(profile["active_backend"], "sqlite")
+        self.assertTrue(profile["fallback_active"])
+        self.assertEqual(profile["fallback_reason"], "postgres_dsn_missing")
+        os.remove(tmp.name)
+
 
 if __name__ == "__main__":
     unittest.main()

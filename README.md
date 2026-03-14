@@ -121,9 +121,10 @@ curl -X POST http://127.0.0.1:3000/api/projects \
 
 Phase 2 백엔드 설정:
 
-- DB 백엔드 선택: `ARCHITECTURE_DB_BACKEND=sqlite|postgres`
+- DB 백엔드 선택: `ARCHITECTURE_DB_BACKEND=sqlite|postgres|hybrid`
 - SQLite 경로: `ARCHITECTURE_DB_PATH=.agent_architecture.db`
 - Postgres DSN: `ARCHITECTURE_POSTGRES_DSN=postgresql://...`
+- Postgres 실패 시 sqlite fallback 강제: `ARCHITECTURE_DB_FALLBACK_SQLITE=1`
 - 큐 백엔드 선택: `ARCHITECTURE_QUEUE_BACKEND=local|redis`
 - Redis URL: `ARCHITECTURE_REDIS_URL=redis://127.0.0.1:6379/0`
 
@@ -172,6 +173,18 @@ docker compose -f infra/docker-compose.phase4.yml up --build
 - Metrics:
   - `GET /api/metrics`
   - `http_requests_total`, `ws_connections_total`, `task_executions_total` 등 카운터 제공
+
+### 권장 운영안 (Vercel + Local Backend + Hybrid DB)
+
+오버스펙 없이 운영하려면 아래 조합을 권장합니다.
+
+- Frontend: Vercel (`dashboard-next`)
+- Backend/Worker: 로컬 상시 구동
+- DB: `hybrid` (Supabase Postgres 우선, 실패 시 SQLite fallback)
+- Queue: 초기 `local`, 필요 시 `redis`
+
+실행 런북: `docs/plan/vercel-local-hybrid-runbook.md`  
+프로파일 예시: `ops/profiles/vercel_local_backend_hybrid.env.example`
 
 ## 이슈 감시
 

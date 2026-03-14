@@ -97,10 +97,12 @@ class Phase5SecurityObservabilityTests(unittest.TestCase):
         health = self.client.get("/api/health")
         self.assertEqual(health.status_code, 200)
         self.assertTrue(health.json()["ok"])
+        self.assertIn("db_active_backend", health.json())
 
         ready = self.client.get("/api/ready")
         self.assertEqual(ready.status_code, 200)
         self.assertTrue(ready.json()["ok"])
+        self.assertIn("db_profile", ready.json())
 
         metrics = self.client.get("/api/metrics")
         self.assertEqual(metrics.status_code, 200)
@@ -108,6 +110,12 @@ class Phase5SecurityObservabilityTests(unittest.TestCase):
         self.assertIn("http_requests_total", payload)
         self.assertIn("ws_connections_total", payload)
         self.assertIn("task_executions_total", payload)
+
+        runtime = self.client.get("/api/runtime/profile")
+        self.assertEqual(runtime.status_code, 200)
+        runtime_payload = runtime.json()
+        self.assertIn("db", runtime_payload)
+        self.assertIn("queue_backend", runtime_payload)
 
 
 if __name__ == "__main__":

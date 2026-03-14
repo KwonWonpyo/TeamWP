@@ -33,6 +33,9 @@ NEXT_PUBLIC_WS_BASE=ws://127.0.0.1:3000
 # NEXT_PUBLIC_ARCHITECTURE_API_KEY=your-api-key
 ```
 
+Vercel 배포 시에는 `NEXT_PUBLIC_API_BASE`, `NEXT_PUBLIC_WS_BASE`를
+외부 접근 가능한 로컬 백엔드 도메인(터널 URL)로 설정해야 합니다.
+
 ## 제공 기능
 
 - 프로젝트 등록/선택

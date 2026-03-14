@@ -172,10 +172,13 @@ def api_status():
 
 @app.get("/api/health")
 def api_health():
+    db_profile = _repo.get_runtime_profile()
     return {
         "ok": True,
         "time": time.time(),
-        "db_backend": _repo.backend_name,
+        "db_configured_backend": db_profile["configured_backend"],
+        "db_active_backend": db_profile["active_backend"],
+        "db_fallback_active": db_profile["fallback_active"],
         "queue_backend": os.getenv("ARCHITECTURE_QUEUE_BACKEND", "local"),
     }
 
@@ -198,6 +201,7 @@ def api_ready():
         "queue_ok": queue_ok,
         "db_error": db_error,
         "queue_error": queue_error if not queue_ok else "",
+        "db_profile": _repo.get_runtime_profile(),
     }
     if not ok:
         raise HTTPException(status_code=503, detail=payload)
@@ -208,9 +212,23 @@ def api_ready():
 def api_metrics():
     with _metrics_lock:
         data = dict(_metrics)
-    data["db_backend"] = _repo.backend_name
+    db_profile = _repo.get_runtime_profile()
+    data["db_configured_backend"] = db_profile["configured_backend"]
+    data["db_active_backend"] = db_profile["active_backend"]
+    data["db_fallback_active"] = db_profile["fallback_active"]
     data["queue_backend"] = os.getenv("ARCHITECTURE_QUEUE_BACKEND", "local")
     return data
+
+
+@app.get("/api/runtime/profile")
+def api_runtime_profile():
+    db_profile = _repo.get_runtime_profile()
+    return {
+        "db": db_profile,
+        "queue_backend": os.getenv("ARCHITECTURE_QUEUE_BACKEND", "local"),
+        "api_key_enabled": bool(_api_key),
+        "cors_origins": list(_cors_origins),
+    }
 
 
 @app.get("/api/projects")
