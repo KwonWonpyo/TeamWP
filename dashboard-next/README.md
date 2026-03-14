@@ -29,6 +29,8 @@ npm run dev -- --port 3001
 ```bash
 NEXT_PUBLIC_API_BASE=http://127.0.0.1:3000
 NEXT_PUBLIC_WS_BASE=ws://127.0.0.1:3000
+# 선택: write API 보호가 켜진 경우
+# NEXT_PUBLIC_ARCHITECTURE_API_KEY=your-api-key
 ```
 
 ## 제공 기능

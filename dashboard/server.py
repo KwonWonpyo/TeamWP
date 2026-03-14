@@ -6,10 +6,12 @@ FastAPI 대시보드 서버. GET /, GET /api/status, POST /api/run.
 
 import os
 import asyncio
+import threading
+import time
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -58,6 +60,16 @@ _repo = ArchitectureRepository(
 _orchestrator = ManagerOrchestrator(_repo)
 _task_queue = create_task_queue()
 _worker_runtime = WorkerRuntime(_task_queue, _orchestrator)
+_api_key = os.getenv("ARCHITECTURE_API_KEY", "").strip()
+
+_metrics_lock = threading.Lock()
+_metrics = {
+    "http_requests_total": 0,
+    "ws_connections_total": 0,
+    "ws_active_connections": 0,
+    "task_executions_total": 0,
+    "task_execution_failed_total": 0,
+}
 
 # POST /api/run 에서 사용할 요청 바디 (실행은 main에서 래핑된 함수 호출)
 class RunRequest(BaseModel):
@@ -94,6 +106,29 @@ class WorkerRunOnceRequest(BaseModel):
     timeout_seconds: int = 1
 
 
+def _metric_inc(key: str, delta: int = 1):
+    with _metrics_lock:
+        _metrics[key] = int(_metrics.get(key, 0)) + delta
+
+
+def _require_api_key(request: Request):
+    if not _api_key:
+        return
+    provided = request.headers.get("x-api-key", "").strip()
+    if provided != _api_key:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+
+def _queue_ready_check() -> tuple[bool, str]:
+    try:
+        client = getattr(_task_queue, "client", None)
+        if client is not None and hasattr(client, "ping"):
+            client.ping()
+        return True, "ok"
+    except Exception as e:
+        return False, str(e)
+
+
 def _build_task_feed_payload(task_id: str) -> dict:
     task = _repo.get_task(task_id)
     if not task:
@@ -103,6 +138,15 @@ def _build_task_feed_payload(task_id: str) -> dict:
         "task": task.to_dict(),
         "conversations": [m.to_dict() for m in messages],
     }
+
+
+@app.middleware("http")
+async def track_http_metrics(request: Request, call_next):
+    started = time.perf_counter()
+    response = await call_next(request)
+    _metric_inc("http_requests_total")
+    response.headers["X-Response-Time-Ms"] = f"{(time.perf_counter() - started) * 1000:.2f}"
+    return response
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -126,13 +170,57 @@ def api_status():
     return snapshot
 
 
+@app.get("/api/health")
+def api_health():
+    return {
+        "ok": True,
+        "time": time.time(),
+        "db_backend": _repo.backend_name,
+        "queue_backend": os.getenv("ARCHITECTURE_QUEUE_BACKEND", "local"),
+    }
+
+
+@app.get("/api/ready")
+def api_ready():
+    db_ok = True
+    db_error = ""
+    try:
+        _repo.list_projects()
+    except Exception as e:
+        db_ok = False
+        db_error = str(e)
+
+    queue_ok, queue_error = _queue_ready_check()
+    ok = db_ok and queue_ok
+    payload = {
+        "ok": ok,
+        "db_ok": db_ok,
+        "queue_ok": queue_ok,
+        "db_error": db_error,
+        "queue_error": queue_error if not queue_ok else "",
+    }
+    if not ok:
+        raise HTTPException(status_code=503, detail=payload)
+    return payload
+
+
+@app.get("/api/metrics")
+def api_metrics():
+    with _metrics_lock:
+        data = dict(_metrics)
+    data["db_backend"] = _repo.backend_name
+    data["queue_backend"] = os.getenv("ARCHITECTURE_QUEUE_BACKEND", "local")
+    return data
+
+
 @app.get("/api/projects")
 def api_list_projects():
     return {"projects": [p.to_dict() for p in _repo.list_projects()]}
 
 
 @app.post("/api/projects")
-def api_upsert_project(body: ProjectCreateRequest):
+def api_upsert_project(body: ProjectCreateRequest, request: Request):
+    _require_api_key(request)
     project = Project(
         project_id=body.project_id,
         name=body.name,
@@ -154,7 +242,8 @@ def api_list_project_tasks(project_id: str):
 
 
 @app.post("/api/tasks")
-def api_create_task(body: TaskCreateRequest):
+def api_create_task(body: TaskCreateRequest, request: Request):
+    _require_api_key(request)
     project = _repo.get_project(body.project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -179,7 +268,8 @@ def api_create_task(body: TaskCreateRequest):
 
 
 @app.patch("/api/tasks/{task_id}/status")
-def api_update_task_status(task_id: str, body: TaskStatusUpdateRequest):
+def api_update_task_status(task_id: str, body: TaskStatusUpdateRequest, request: Request):
+    _require_api_key(request)
     updated = _orchestrator.update_status(task_id, TaskStatus(body.status))
     if not updated:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -204,7 +294,8 @@ def api_task_feed(task_id: str):
 
 
 @app.post("/api/tasks/{task_id}/conversations")
-def api_add_conversation(task_id: str, body: ConversationCreateRequest):
+def api_add_conversation(task_id: str, body: ConversationCreateRequest, request: Request):
+    _require_api_key(request)
     task = _repo.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -218,7 +309,8 @@ def api_add_conversation(task_id: str, body: ConversationCreateRequest):
 
 
 @app.post("/api/tasks/{task_id}/enqueue")
-def api_enqueue_task(task_id: str):
+def api_enqueue_task(task_id: str, request: Request):
+    _require_api_key(request)
     task = _repo.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -227,8 +319,13 @@ def api_enqueue_task(task_id: str):
 
 
 @app.post("/api/workers/run-once")
-def api_worker_run_once(body: WorkerRunOnceRequest):
+def api_worker_run_once(body: WorkerRunOnceRequest, request: Request):
+    _require_api_key(request)
     result = _worker_runtime.run_once(timeout_seconds=body.timeout_seconds)
+    if result.task_id and result.ok:
+        _metric_inc("task_executions_total")
+    if result.task_id and not result.ok:
+        _metric_inc("task_execution_failed_total")
     return {
         "ok": result.ok,
         "task_id": result.task_id,
@@ -239,7 +336,16 @@ def api_worker_run_once(body: WorkerRunOnceRequest):
 
 @app.websocket("/ws/tasks/{task_id}")
 async def ws_task_feed(websocket: WebSocket, task_id: str):
+    if _api_key:
+        provided = websocket.query_params.get("api_key", "").strip()
+        if provided != _api_key:
+            await websocket.accept()
+            await websocket.send_json({"type": "error", "detail": "Invalid API key"})
+            await websocket.close(code=1008)
+            return
     await websocket.accept()
+    _metric_inc("ws_connections_total")
+    _metric_inc("ws_active_connections")
     try:
         if _repo.get_task(task_id) is None:
             await websocket.send_json({"type": "error", "detail": "Task not found"})
@@ -278,10 +384,13 @@ async def ws_task_feed(websocket: WebSocket, task_id: str):
             await asyncio.sleep(0.5)
     except WebSocketDisconnect:
         return
+    finally:
+        _metric_inc("ws_active_connections", -1)
 
 
 @app.post("/api/run")
-def api_run(body: RunRequest):
+def api_run(body: RunRequest, request: Request):
+    _require_api_key(request)
     """단일 이슈 실행 트리거. 이미 실행 중이면 409. 사용량 상한 초과 시 403."""
     if is_running():
         raise HTTPException(status_code=409, detail="Already running")
@@ -298,7 +407,8 @@ def api_run(body: RunRequest):
 
 
 @app.post("/api/usage/reset")
-def api_usage_reset():
+def api_usage_reset(request: Request):
+    _require_api_key(request)
     """사용량 초기화 (토큰/호출 횟수 0으로)."""
     reset_usage()
     return {"ok": True}

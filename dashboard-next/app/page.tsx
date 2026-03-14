@@ -36,6 +36,7 @@ type TaskFeedPayload = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:3000";
 const WS_BASE = process.env.NEXT_PUBLIC_WS_BASE ?? "ws://127.0.0.1:3000";
+const API_KEY = process.env.NEXT_PUBLIC_ARCHITECTURE_API_KEY ?? "";
 
 function toLocalTime(iso: string) {
   try {
@@ -43,6 +44,10 @@ function toLocalTime(iso: string) {
   } catch {
     return iso;
   }
+}
+
+function authHeaders() {
+  return API_KEY ? { "x-api-key": API_KEY } : {};
 }
 
 export default function Home() {
@@ -103,7 +108,10 @@ export default function Home() {
   useEffect(() => {
     if (!selectedTaskId) return;
 
-    const ws = new WebSocket(`${WS_BASE}/ws/tasks/${selectedTaskId}`);
+    const wsUrl = API_KEY
+      ? `${WS_BASE}/ws/tasks/${selectedTaskId}?api_key=${encodeURIComponent(API_KEY)}`
+      : `${WS_BASE}/ws/tasks/${selectedTaskId}`;
+    const ws = new WebSocket(wsUrl);
     ws.onopen = () => setStatusMessage(`실시간 연결됨: ${selectedTaskId}`);
 
     ws.onmessage = (event) => {
@@ -127,7 +135,7 @@ export default function Home() {
     e.preventDefault();
     const res = await fetch(`${API_BASE}/api/projects`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(projectForm),
     });
     if (!res.ok) {
@@ -151,7 +159,7 @@ export default function Home() {
     }
     const res = await fetch(`${API_BASE}/api/tasks`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({
         project_id: selectedProjectId,
         title: taskForm.title,
@@ -178,7 +186,7 @@ export default function Home() {
   async function runWorkerOnce() {
     const res = await fetch(`${API_BASE}/api/workers/run-once`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ timeout_seconds: 1 }),
     });
     if (!res.ok) {

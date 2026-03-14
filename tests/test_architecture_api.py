@@ -14,6 +14,7 @@ class ArchitectureApiTests(unittest.TestCase):
         os.environ["ARCHITECTURE_DB_PATH"] = self.db_path
         os.environ["ARCHITECTURE_DB_BACKEND"] = "sqlite"
         os.environ["ARCHITECTURE_QUEUE_BACKEND"] = "local"
+        os.environ.pop("ARCHITECTURE_API_KEY", None)
 
         import dashboard.server as server_module
 
@@ -25,6 +26,7 @@ class ArchitectureApiTests(unittest.TestCase):
         os.environ.pop("ARCHITECTURE_DB_PATH", None)
         os.environ.pop("ARCHITECTURE_DB_BACKEND", None)
         os.environ.pop("ARCHITECTURE_QUEUE_BACKEND", None)
+        os.environ.pop("ARCHITECTURE_API_KEY", None)
         if os.path.exists(self.db_path):
             os.remove(self.db_path)
 

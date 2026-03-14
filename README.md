@@ -159,6 +159,20 @@ npm run dev -- --port 3001
 docker compose -f infra/docker-compose.phase4.yml up --build
 ```
 
+### Phase 5 Ops Hardening (Security + Observability)
+
+추가된 보호/관측 기능:
+
+- API Key 보호 (옵션): `ARCHITECTURE_API_KEY`
+  - 보호 대상: `POST/PATCH` 변경 API + `/ws/tasks/{task_id}`
+  - 헤더: `x-api-key`
+- Health/Ready:
+  - `GET /api/health`
+  - `GET /api/ready`
+- Metrics:
+  - `GET /api/metrics`
+  - `http_requests_total`, `ws_connections_total`, `task_executions_total` 등 카운터 제공
+
 ## 이슈 감시
 
 - **`agent-todo`** 라벨이 달린 이슈만 처리합니다.
