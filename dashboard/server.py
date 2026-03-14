@@ -6,6 +6,7 @@ FastAPI 대시보드 서버. GET /, GET /api/status, POST /api/run.
 
 import os
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
@@ -20,12 +21,44 @@ if str(_root) not in sys.path:
 
 from dashboard_state import get_snapshot, is_running
 from usage_tracking import is_over_limit, reset_usage
+from core.models import AgentRole, Project, TaskSource, TaskStatus
+from core.orchestrator import ManagerOrchestrator
+from core.repository import ArchitectureRepository
 
 app = FastAPI(title="Agent Team Dashboard")
+
+_db_path = os.getenv("ARCHITECTURE_DB_PATH", ".agent_architecture.db")
+_repo = ArchitectureRepository(_db_path)
+_orchestrator = ManagerOrchestrator(_repo)
 
 # POST /api/run 에서 사용할 요청 바디 (실행은 main에서 래핑된 함수 호출)
 class RunRequest(BaseModel):
     issue: int
+
+
+class ProjectCreateRequest(BaseModel):
+    project_id: str
+    name: str
+    repo_url: str
+    default_branch: str = "master"
+    tech_stack: str = ""
+
+
+class TaskCreateRequest(BaseModel):
+    project_id: str
+    title: str
+    description: str
+    source: Literal["github", "cli", "discord", "scheduler"] = "cli"
+
+
+class TaskStatusUpdateRequest(BaseModel):
+    status: Literal["pending", "in_progress", "done", "failed"]
+
+
+class ConversationCreateRequest(BaseModel):
+    agent_role: Literal["pm", "cto", "developer", "qa", "architect", "marketing", "orchestrator"]
+    content: str
+    token_usage: int = 0
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -47,6 +80,78 @@ def api_status():
     snapshot = get_snapshot()
     snapshot["github_repo"] = os.getenv("GITHUB_REPO") or ""
     return snapshot
+
+
+@app.get("/api/projects")
+def api_list_projects():
+    return {"projects": [p.to_dict() for p in _repo.list_projects()]}
+
+
+@app.post("/api/projects")
+def api_upsert_project(body: ProjectCreateRequest):
+    project = Project(
+        project_id=body.project_id,
+        name=body.name,
+        repo_url=body.repo_url,
+        default_branch=body.default_branch,
+        tech_stack=body.tech_stack,
+    )
+    stored = _repo.upsert_project(project)
+    return {"project": stored.to_dict()}
+
+
+@app.get("/api/projects/{project_id}/tasks")
+def api_list_project_tasks(project_id: str):
+    project = _repo.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    tasks = _repo.list_tasks(project_id=project_id)
+    return {"tasks": [t.to_dict() for t in tasks]}
+
+
+@app.post("/api/tasks")
+def api_create_task(body: TaskCreateRequest):
+    project = _repo.get_project(body.project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    result = _orchestrator.create_task_with_plan(
+        project_id=body.project_id,
+        title=body.title,
+        description=body.description,
+        source=TaskSource(body.source),
+    )
+    return result.to_dict()
+
+
+@app.patch("/api/tasks/{task_id}/status")
+def api_update_task_status(task_id: str, body: TaskStatusUpdateRequest):
+    updated = _orchestrator.update_status(task_id, TaskStatus(body.status))
+    if not updated:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"task": updated.to_dict()}
+
+
+@app.get("/api/tasks/{task_id}/conversations")
+def api_list_conversations(task_id: str):
+    task = _repo.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    messages = _repo.list_conversations(task_id)
+    return {"messages": [m.to_dict() for m in messages]}
+
+
+@app.post("/api/tasks/{task_id}/conversations")
+def api_add_conversation(task_id: str, body: ConversationCreateRequest):
+    task = _repo.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    message = _orchestrator.add_message(
+        task_id=task_id,
+        role=AgentRole(body.agent_role),
+        content=body.content,
+        token_usage=body.token_usage,
+    )
+    return {"message": message.to_dict()}
 
 
 @app.post("/api/run")
