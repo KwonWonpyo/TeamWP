@@ -127,6 +127,23 @@ Phase 2 백엔드 설정:
 - 큐 백엔드 선택: `ARCHITECTURE_QUEUE_BACKEND=local|redis`
 - Redis URL: `ARCHITECTURE_REDIS_URL=redis://127.0.0.1:6379/0`
 
+### Phase 3 Frontend (Next.js + Tailwind + WebSocket)
+
+`dashboard-next/`에 Phase 3 프론트엔드가 추가되었습니다.
+
+```bash
+# backend
+python3 main.py --dashboard --port 3000
+
+# frontend
+cd dashboard-next
+npm run dev -- --port 3001
+```
+
+- Frontend: `http://127.0.0.1:3001`
+- Backend API: `http://127.0.0.1:3000`
+- WebSocket: `ws://127.0.0.1:3000/ws/tasks/{task_id}`
+
 ## 이슈 감시
 
 - **`agent-todo`** 라벨이 달린 이슈만 처리합니다.

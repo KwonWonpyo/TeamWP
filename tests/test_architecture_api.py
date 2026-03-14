@@ -139,6 +139,47 @@ class ArchitectureApiTests(unittest.TestCase):
         self.assertIn("developer", roles)
         self.assertIn("qa", roles)
 
+    def test_websocket_task_feed_streams_updates(self):
+        self.client.post(
+            "/api/projects",
+            json={
+                "project_id": "ws-project",
+                "name": "ws-project",
+                "repo_url": "https://github.com/org/ws-project",
+                "default_branch": "master",
+                "tech_stack": "Next.js, WebSocket",
+            },
+        )
+        create_res = self.client.post(
+            "/api/tasks",
+            json={
+                "project_id": "ws-project",
+                "title": "websocket test",
+                "description": "stream status updates",
+                "source": "cli",
+            },
+        )
+        task_id = create_res.json()["task"]["task_id"]
+
+        with self.client.websocket_connect(f"/ws/tasks/{task_id}") as websocket:
+            first_payload = websocket.receive_json()
+            self.assertEqual(first_payload["type"], "task_feed")
+            self.assertEqual(first_payload["data"]["task"]["status"], "pending")
+
+            patch_res = self.client.patch(
+                f"/api/tasks/{task_id}/status",
+                json={"status": "in_progress"},
+            )
+            self.assertEqual(patch_res.status_code, 200)
+
+            second_payload = websocket.receive_json()
+            self.assertEqual(second_payload["type"], "task_feed")
+            self.assertEqual(second_payload["data"]["task"]["status"], "in_progress")
+
+        feed_res = self.client.get(f"/api/tasks/{task_id}/feed")
+        self.assertEqual(feed_res.status_code, 200)
+        self.assertEqual(feed_res.json()["task"]["task_id"], task_id)
+
 
 if __name__ == "__main__":
     unittest.main()

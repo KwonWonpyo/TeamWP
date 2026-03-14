@@ -5,12 +5,14 @@ FastAPI 대시보드 서버. GET /, GET /api/status, POST /api/run.
 """
 
 import os
+import asyncio
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 # 프로젝트 루트 기준으로 import (server는 dashboard/ 안에 있음)
@@ -28,6 +30,22 @@ from core.queue import create_task_queue
 from core.worker import WorkerRuntime
 
 app = FastAPI(title="Agent Team Dashboard")
+
+_cors_origins = [
+    o.strip()
+    for o in os.getenv(
+        "ARCHITECTURE_CORS_ORIGINS",
+        "http://127.0.0.1:3001,http://localhost:3001,http://127.0.0.1:3000,http://localhost:3000",
+    ).split(",")
+    if o.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 _db_backend = os.getenv("ARCHITECTURE_DB_BACKEND", "sqlite")
 _db_path = os.getenv("ARCHITECTURE_DB_PATH", ".agent_architecture.db")
@@ -74,6 +92,17 @@ class ConversationCreateRequest(BaseModel):
 
 class WorkerRunOnceRequest(BaseModel):
     timeout_seconds: int = 1
+
+
+def _build_task_feed_payload(task_id: str) -> dict:
+    task = _repo.get_task(task_id)
+    if not task:
+        return {"task": None, "conversations": []}
+    messages = _repo.list_conversations(task_id)
+    return {
+        "task": task.to_dict(),
+        "conversations": [m.to_dict() for m in messages],
+    }
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -166,6 +195,14 @@ def api_list_conversations(task_id: str):
     return {"messages": [m.to_dict() for m in messages]}
 
 
+@app.get("/api/tasks/{task_id}/feed")
+def api_task_feed(task_id: str):
+    payload = _build_task_feed_payload(task_id)
+    if payload["task"] is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return payload
+
+
 @app.post("/api/tasks/{task_id}/conversations")
 def api_add_conversation(task_id: str, body: ConversationCreateRequest):
     task = _repo.get_task(task_id)
@@ -198,6 +235,49 @@ def api_worker_run_once(body: WorkerRunOnceRequest):
         "message": result.message,
         "payload": result.payload,
     }
+
+
+@app.websocket("/ws/tasks/{task_id}")
+async def ws_task_feed(websocket: WebSocket, task_id: str):
+    await websocket.accept()
+    try:
+        if _repo.get_task(task_id) is None:
+            await websocket.send_json({"type": "error", "detail": "Task not found"})
+            await websocket.close(code=1008)
+            return
+
+        last_signature = ""
+        while True:
+            payload = _build_task_feed_payload(task_id)
+            task = payload.get("task")
+            conversations = payload.get("conversations", [])
+            if task is None:
+                await websocket.send_json({"type": "error", "detail": "Task deleted"})
+                await websocket.close(code=1008)
+                return
+
+            latest_message_id = conversations[-1]["message_id"] if conversations else ""
+            signature = f"{task['status']}|{len(conversations)}|{latest_message_id}"
+            if signature != last_signature:
+                await websocket.send_json(
+                    {
+                        "type": "task_feed",
+                        "task_id": task_id,
+                        "data": payload,
+                    }
+                )
+                last_signature = signature
+
+            try:
+                client_message = await asyncio.wait_for(websocket.receive_text(), timeout=1.0)
+                if client_message.strip().lower() in {"close", "disconnect"}:
+                    await websocket.close(code=1000)
+                    return
+            except asyncio.TimeoutError:
+                pass
+            await asyncio.sleep(0.5)
+    except WebSocketDisconnect:
+        return
 
 
 @app.post("/api/run")

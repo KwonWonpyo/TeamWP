@@ -17,6 +17,7 @@
 
 - Phase 1: 완료
 - Phase 2: 진행 중 (Repository 백엔드 선택 구조 + Queue/Worker + LangGraph fallback 워크플로우 스켈레톤 반영)
+- Phase 3: 시작 (Next.js/Tailwind 프론트엔드 스캐폴딩 + WebSocket feed 연동)
 
 ## 1) 인프라 목표 매트릭스 (Section 16 반영 체크)
 
