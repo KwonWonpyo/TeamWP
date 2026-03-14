@@ -71,40 +71,40 @@ export default function Home() {
     [projects, selectedProjectId],
   );
 
-  async function loadProjects() {
-    const res = await fetch(`${API_BASE}/api/projects`);
-    if (!res.ok) throw new Error("프로젝트 목록 조회 실패");
-    const data = await res.json();
-    setProjects(data.projects ?? []);
-  }
-
-  async function loadTasks(projectId: string) {
-    if (!projectId) {
-      setTasks([]);
-      return;
-    }
-    const res = await fetch(`${API_BASE}/api/projects/${projectId}/tasks`);
-    if (!res.ok) throw new Error("태스크 목록 조회 실패");
-    const data = await res.json();
-    setTasks(data.tasks ?? []);
-  }
-
   useEffect(() => {
-    loadProjects().catch((e) => setStatusMessage(String(e)));
+    const run = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/projects`);
+        if (!res.ok) throw new Error("프로젝트 목록 조회 실패");
+        const data = await res.json();
+        setProjects(data.projects ?? []);
+      } catch (e) {
+        setStatusMessage(String(e));
+      }
+    };
+    void run();
   }, []);
 
   useEffect(() => {
-    loadTasks(selectedProjectId).catch((e) => setStatusMessage(String(e)));
+    const run = async () => {
+      if (!selectedProjectId) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/projects/${selectedProjectId}/tasks`);
+        if (!res.ok) throw new Error("태스크 목록 조회 실패");
+        const data = await res.json();
+        setTasks(data.tasks ?? []);
+      } catch (e) {
+        setStatusMessage(String(e));
+      }
+    };
+    void run();
   }, [selectedProjectId]);
 
   useEffect(() => {
-    if (!selectedTaskId) {
-      setTaskFeed(null);
-      return;
-    }
+    if (!selectedTaskId) return;
 
     const ws = new WebSocket(`${WS_BASE}/ws/tasks/${selectedTaskId}`);
-    setStatusMessage(`WS 연결 중: ${selectedTaskId}`);
+    ws.onopen = () => setStatusMessage(`실시간 연결됨: ${selectedTaskId}`);
 
     ws.onmessage = (event) => {
       const payload = JSON.parse(event.data);
@@ -135,7 +135,11 @@ export default function Home() {
       return;
     }
     setStatusMessage("프로젝트 저장 완료");
-    await loadProjects();
+    const projectRes = await fetch(`${API_BASE}/api/projects`);
+    if (projectRes.ok) {
+      const projectData = await projectRes.json();
+      setProjects(projectData.projects ?? []);
+    }
     setSelectedProjectId(projectForm.project_id);
   }
 
@@ -162,8 +166,13 @@ export default function Home() {
     }
     const data = await res.json();
     setStatusMessage(`태스크 생성 + 큐 적재 완료: ${data.task.task_id}`);
-    await loadTasks(selectedProjectId);
+    const tasksRes = await fetch(`${API_BASE}/api/projects/${selectedProjectId}/tasks`);
+    if (tasksRes.ok) {
+      const tasksData = await tasksRes.json();
+      setTasks(tasksData.tasks ?? []);
+    }
     setSelectedTaskId(data.task.task_id);
+    setTaskFeed(null);
   }
 
   async function runWorkerOnce() {
@@ -179,7 +188,11 @@ export default function Home() {
     const data = await res.json();
     setStatusMessage(data.message);
     if (selectedProjectId) {
-      await loadTasks(selectedProjectId);
+      const tasksRes = await fetch(`${API_BASE}/api/projects/${selectedProjectId}/tasks`);
+      if (tasksRes.ok) {
+        const tasksData = await tasksRes.json();
+        setTasks(tasksData.tasks ?? []);
+      }
     }
   }
 
@@ -239,7 +252,12 @@ export default function Home() {
             <select
               className="w-full rounded bg-slate-800 px-2 py-1 text-sm"
               value={selectedProjectId}
-              onChange={(e) => setSelectedProjectId(e.target.value)}
+              onChange={(e) => {
+                setSelectedProjectId(e.target.value);
+                setTasks([]);
+                setSelectedTaskId("");
+                setTaskFeed(null);
+              }}
             >
               <option value="">선택하세요</option>
               {projects.map((project) => (
@@ -305,7 +323,10 @@ export default function Home() {
                       ? "border-cyan-400 bg-slate-800"
                       : "border-slate-800 bg-slate-900 hover:border-slate-600"
                   }`}
-                  onClick={() => setSelectedTaskId(task.task_id)}
+                  onClick={() => {
+                    setSelectedTaskId(task.task_id);
+                    setTaskFeed(null);
+                  }}
                   type="button"
                 >
                   <div className="text-sm font-semibold">{task.title}</div>

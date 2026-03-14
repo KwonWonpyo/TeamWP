@@ -46,6 +46,7 @@ Thumbs.db
 
 # 사용량 추적 (대시보드에서 리셋 가능)
 .agent_usage.json
+.agent_architecture.db
 
 # CrewAI / LLM 캐시 (있는 경우)
 .crewai/
