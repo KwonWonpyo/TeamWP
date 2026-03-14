@@ -25,9 +25,9 @@
 | 항목 | 목표 스택 | 현재 상태 | 반영 단계 |
 | --- | --- | --- | --- |
 | API 서버 | Python + FastAPI | ✅ 부분 반영 (기존 + 확장 API) | Phase 1 완료 |
-| 오케스트레이션 | LangGraph | ❌ 미반영 | Phase 2 |
-| Queue/Cache | Redis | ❌ 미반영 | Phase 2 |
-| 영속 저장소 | Postgres | ❌ 미반영 (현재 SQLite 임시) | Phase 2 |
+| 오케스트레이션 | LangGraph | ⚠️ 스켈레톤 반영 (fallback 실행 포함) | Phase 2 진행 |
+| Queue/Cache | Redis | ⚠️ 큐 인터페이스/Redis 어댑터 반영 | Phase 2 진행 |
+| 영속 저장소 | Postgres | ⚠️ Postgres 어댑터 반영 (실서버 연결은 운영 설정 필요) | Phase 2 진행 |
 
 ### Frontend
 
