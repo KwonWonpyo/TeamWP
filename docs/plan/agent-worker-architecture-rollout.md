@@ -34,9 +34,9 @@
 
 | 항목 | 목표 스택 | 현재 상태 | 반영 단계 |
 | --- | --- | --- | --- |
-| 앱 프레임워크 | Next.js + React | ❌ 미반영 (현재 FastAPI static HTML) | Phase 3 |
-| 스타일링 | Tailwind | ❌ 미반영 | Phase 3 |
-| 실시간 채널 | WebSocket | ❌ 미반영 (현재 polling) | Phase 3 |
+| 앱 프레임워크 | Next.js + React | ⚠️ `dashboard-next` 스캐폴딩 + UI 연결 반영 | Phase 3 진행 |
+| 스타일링 | Tailwind | ⚠️ Tailwind 기반 UI 반영 | Phase 3 진행 |
+| 실시간 채널 | WebSocket | ⚠️ `/ws/tasks/{task_id}` 실시간 피드 반영 | Phase 3 진행 |
 
 ### Runtime
 
