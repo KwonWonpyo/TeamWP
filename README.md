@@ -144,6 +144,21 @@ npm run dev -- --port 3001
 - Backend API: `http://127.0.0.1:3000`
 - WebSocket: `ws://127.0.0.1:3000/ws/tasks/{task_id}`
 
+### Phase 4 Runtime (Docker / ECS / Kubernetes)
+
+런타임 배포 골격 파일이 추가되었습니다.
+
+- Docker: `Dockerfile.api`, `Dockerfile.worker`, `dashboard-next/Dockerfile`
+- Compose: `infra/docker-compose.phase4.yml`
+- Kubernetes: `infra/k8s/*.yaml`
+- ECS: `infra/ecs/taskdef-*.json`
+
+로컬 통합 실행:
+
+```bash
+docker compose -f infra/docker-compose.phase4.yml up --build
+```
+
 ## 이슈 감시
 
 - **`agent-todo`** 라벨이 달린 이슈만 처리합니다.

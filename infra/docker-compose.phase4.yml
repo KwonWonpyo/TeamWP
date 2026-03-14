@@ -1,0 +1,77 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: agent
+      POSTGRES_DB: agent_system
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent -d agent_system"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile.api
+    environment:
+      ARCHITECTURE_DB_BACKEND: postgres
+      ARCHITECTURE_POSTGRES_DSN: postgresql://agent:agent@postgres:5432/agent_system
+      ARCHITECTURE_QUEUE_BACKEND: redis
+      ARCHITECTURE_REDIS_URL: redis://redis:6379/0
+      ARCHITECTURE_CORS_ORIGINS: http://127.0.0.1:3001,http://localhost:3001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+
+  worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile.worker
+    environment:
+      ARCHITECTURE_DB_BACKEND: postgres
+      ARCHITECTURE_POSTGRES_DSN: postgresql://agent:agent@postgres:5432/agent_system
+      ARCHITECTURE_QUEUE_BACKEND: redis
+      ARCHITECTURE_REDIS_URL: redis://redis:6379/0
+      WORKER_POLL_INTERVAL_SECONDS: "0.3"
+      WORKER_DEQUEUE_TIMEOUT_SECONDS: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ../dashboard-next
+      dockerfile: Dockerfile
+    environment:
+      NEXT_PUBLIC_API_BASE: http://127.0.0.1:3000
+      NEXT_PUBLIC_WS_BASE: ws://127.0.0.1:3000
+    depends_on:
+      - api
+    ports:
+      - "3001:3001"
+
+volumes:
+  postgres_data:
+

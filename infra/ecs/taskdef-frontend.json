@@ -1,0 +1,25 @@
+{
+  "family": "teamwp-frontend",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "containerDefinitions": [
+    {
+      "name": "frontend",
+      "image": "ghcr.io/your-org/teamwp-frontend:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 3001,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "NEXT_PUBLIC_API_BASE", "value": "https://api.example.com" },
+        { "name": "NEXT_PUBLIC_WS_BASE", "value": "wss://api.example.com" }
+      ]
+    }
+  ]
+}
+

@@ -18,6 +18,7 @@
 - Phase 1: 완료
 - Phase 2: 진행 중 (Repository 백엔드 선택 구조 + Queue/Worker + LangGraph fallback 워크플로우 스켈레톤 반영)
 - Phase 3: 시작 (Next.js/Tailwind 프론트엔드 스캐폴딩 + WebSocket feed 연동)
+- Phase 4: 시작 (Docker/Compose + K8s/ECS 배포 템플릿 반영)
 
 ## 1) 인프라 목표 매트릭스 (Section 16 반영 체크)
 
@@ -42,8 +43,8 @@
 
 | 항목 | 목표 스택 | 현재 상태 | 반영 단계 |
 | --- | --- | --- | --- |
-| 컨테이너 | Docker | ❌ 미반영 | Phase 4 |
-| 오케스트레이션 | AWS ECS / Kubernetes | ❌ 미반영 | Phase 4 |
+| 컨테이너 | Docker | ⚠️ API/Worker/Frontend Dockerfile + compose 반영 | Phase 4 진행 |
+| 오케스트레이션 | AWS ECS / Kubernetes | ⚠️ K8s/ECS 템플릿 매니페스트 반영 | Phase 4 진행 |
 
 ## 2) 현재까지 반영된 1차 구현(Phase 1)
 
