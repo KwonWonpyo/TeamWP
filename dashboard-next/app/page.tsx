@@ -46,7 +46,7 @@ function toLocalTime(iso: string) {
   }
 }
 
-function authHeaders() {
+function authHeaders(): Record<string, string> {
   return API_KEY ? { "x-api-key": API_KEY } : {};
 }
 
