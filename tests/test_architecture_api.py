@@ -12,6 +12,8 @@ class ArchitectureApiTests(unittest.TestCase):
         tmp.close()
         self.db_path = tmp.name
         os.environ["ARCHITECTURE_DB_PATH"] = self.db_path
+        os.environ["ARCHITECTURE_DB_BACKEND"] = "sqlite"
+        os.environ["ARCHITECTURE_QUEUE_BACKEND"] = "local"
 
         import dashboard.server as server_module
 
@@ -21,6 +23,8 @@ class ArchitectureApiTests(unittest.TestCase):
     def tearDown(self):
         self.client.close()
         os.environ.pop("ARCHITECTURE_DB_PATH", None)
+        os.environ.pop("ARCHITECTURE_DB_BACKEND", None)
+        os.environ.pop("ARCHITECTURE_QUEUE_BACKEND", None)
         if os.path.exists(self.db_path):
             os.remove(self.db_path)
 
@@ -91,6 +95,49 @@ class ArchitectureApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(res.status_code, 404)
+
+    def test_enqueue_and_worker_run_once(self):
+        self.client.post(
+            "/api/projects",
+            json={
+                "project_id": "ai-agent-system",
+                "name": "ai-agent-system",
+                "repo_url": "https://github.com/org/ai-agent-system",
+                "default_branch": "master",
+                "tech_stack": "FastAPI, LangGraph, Redis, Postgres",
+            },
+        )
+        create_res = self.client.post(
+            "/api/tasks",
+            json={
+                "project_id": "ai-agent-system",
+                "title": "Implement worker queue",
+                "description": "connect queue and workflow",
+                "source": "cli",
+                "auto_enqueue": True,
+            },
+        )
+        self.assertEqual(create_res.status_code, 200)
+        payload = create_res.json()
+        self.assertTrue(payload["queue"]["enqueued"])
+        task_id = payload["task"]["task_id"]
+
+        run_once_res = self.client.post("/api/workers/run-once", json={"timeout_seconds": 1})
+        self.assertEqual(run_once_res.status_code, 200)
+        self.assertTrue(run_once_res.json()["ok"])
+        self.assertEqual(run_once_res.json()["task_id"], task_id)
+
+        task_list_res = self.client.get("/api/projects/ai-agent-system/tasks")
+        self.assertEqual(task_list_res.status_code, 200)
+        self.assertEqual(task_list_res.json()["tasks"][0]["status"], "done")
+
+        conv_res = self.client.get(f"/api/tasks/{task_id}/conversations")
+        self.assertEqual(conv_res.status_code, 200)
+        roles = [m["agent_role"] for m in conv_res.json()["messages"]]
+        self.assertIn("pm", roles)
+        self.assertIn("cto", roles)
+        self.assertIn("developer", roles)
+        self.assertIn("qa", roles)
 
 
 if __name__ == "__main__":

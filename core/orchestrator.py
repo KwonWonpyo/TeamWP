@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from core.models import AgentRole, TaskSource, TaskStatus, TaskType, WorkTask, WorkflowStep
 from core.repository import ArchitectureRepository
+from core.workflow import TaskWorkflowEngine
 
 
 @dataclass(slots=True)
@@ -23,8 +24,9 @@ class TaskPlanResult:
 class ManagerOrchestrator:
     """문서 기반 협업 플로우를 계획하고 conversation을 기록한다."""
 
-    def __init__(self, repo: ArchitectureRepository):
+    def __init__(self, repo: ArchitectureRepository, workflow_engine: TaskWorkflowEngine | None = None):
         self.repo = repo
+        self.workflow_engine = workflow_engine or TaskWorkflowEngine(repo)
 
     def create_task_with_plan(
         self,
@@ -69,6 +71,31 @@ class ManagerOrchestrator:
                 content=f"Task status changed to {status.value}",
             )
         return task
+
+    def execute_task(self, task_id: str) -> WorkTask | None:
+        task = self.repo.get_task(task_id)
+        if not task:
+            return None
+
+        self.update_status(task_id, TaskStatus.IN_PROGRESS)
+        try:
+            final_state = self.workflow_engine.execute(task)
+            logs = final_state.get("logs", [])
+            if logs:
+                self.repo.add_conversation(
+                    task_id=task_id,
+                    agent_role=AgentRole.ORCHESTRATOR,
+                    content=f"Workflow logs: {' | '.join(logs)}",
+                )
+            self.update_status(task_id, TaskStatus.DONE)
+        except Exception as e:
+            self.repo.add_conversation(
+                task_id=task_id,
+                agent_role=AgentRole.ORCHESTRATOR,
+                content=f"Workflow execution failed: {e}",
+            )
+            self.update_status(task_id, TaskStatus.FAILED)
+        return self.repo.get_task(task_id)
 
     @staticmethod
     def _build_default_plan() -> list[WorkflowStep]:

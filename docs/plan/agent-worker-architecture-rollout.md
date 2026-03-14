@@ -13,6 +13,11 @@
 
 특히 **Section 16 Infrastructure**를 필수 반영 대상으로 본다.
 
+### 진행 상태 업데이트 (2026-03-14)
+
+- Phase 1: 완료
+- Phase 2: 진행 중 (Repository 백엔드 선택 구조 + Queue/Worker + LangGraph fallback 워크플로우 스켈레톤 반영)
+
 ## 1) 인프라 목표 매트릭스 (Section 16 반영 체크)
 
 ### Backend

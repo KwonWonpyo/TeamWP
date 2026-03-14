@@ -24,12 +24,22 @@ from usage_tracking import is_over_limit, reset_usage
 from core.models import AgentRole, Project, TaskSource, TaskStatus
 from core.orchestrator import ManagerOrchestrator
 from core.repository import ArchitectureRepository
+from core.queue import create_task_queue
+from core.worker import WorkerRuntime
 
 app = FastAPI(title="Agent Team Dashboard")
 
+_db_backend = os.getenv("ARCHITECTURE_DB_BACKEND", "sqlite")
 _db_path = os.getenv("ARCHITECTURE_DB_PATH", ".agent_architecture.db")
-_repo = ArchitectureRepository(_db_path)
+_postgres_dsn = os.getenv("ARCHITECTURE_POSTGRES_DSN")
+_repo = ArchitectureRepository(
+    db_path=_db_path,
+    backend=_db_backend,
+    postgres_dsn=_postgres_dsn,
+)
 _orchestrator = ManagerOrchestrator(_repo)
+_task_queue = create_task_queue()
+_worker_runtime = WorkerRuntime(_task_queue, _orchestrator)
 
 # POST /api/run 에서 사용할 요청 바디 (실행은 main에서 래핑된 함수 호출)
 class RunRequest(BaseModel):
@@ -49,6 +59,7 @@ class TaskCreateRequest(BaseModel):
     title: str
     description: str
     source: Literal["github", "cli", "discord", "scheduler"] = "cli"
+    auto_enqueue: bool = False
 
 
 class TaskStatusUpdateRequest(BaseModel):
@@ -59,6 +70,10 @@ class ConversationCreateRequest(BaseModel):
     agent_role: Literal["pm", "cto", "developer", "qa", "architect", "marketing", "orchestrator"]
     content: str
     token_usage: int = 0
+
+
+class WorkerRunOnceRequest(BaseModel):
+    timeout_seconds: int = 1
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -120,7 +135,18 @@ def api_create_task(body: TaskCreateRequest):
         description=body.description,
         source=TaskSource(body.source),
     )
-    return result.to_dict()
+    payload = result.to_dict()
+    if body.auto_enqueue:
+        job_id = _task_queue.enqueue(
+            {
+                "task_id": result.task.task_id,
+                "project_id": result.task.project_id,
+            }
+        )
+        payload["queue"] = {"enqueued": True, "job_id": job_id}
+    else:
+        payload["queue"] = {"enqueued": False}
+    return payload
 
 
 @app.patch("/api/tasks/{task_id}/status")
@@ -152,6 +178,26 @@ def api_add_conversation(task_id: str, body: ConversationCreateRequest):
         token_usage=body.token_usage,
     )
     return {"message": message.to_dict()}
+
+
+@app.post("/api/tasks/{task_id}/enqueue")
+def api_enqueue_task(task_id: str):
+    task = _repo.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    job_id = _task_queue.enqueue({"task_id": task_id, "project_id": task.project_id})
+    return {"ok": True, "task_id": task_id, "job_id": job_id}
+
+
+@app.post("/api/workers/run-once")
+def api_worker_run_once(body: WorkerRunOnceRequest):
+    result = _worker_runtime.run_once(timeout_seconds=body.timeout_seconds)
+    return {
+        "ok": result.ok,
+        "task_id": result.task_id,
+        "message": result.message,
+        "payload": result.payload,
+    }
 
 
 @app.post("/api/run")
