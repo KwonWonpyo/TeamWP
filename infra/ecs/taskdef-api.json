@@ -1,0 +1,36 @@
+{
+  "family": "teamwp-api",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "1024",
+  "memory": "2048",
+  "containerDefinitions": [
+    {
+      "name": "api",
+      "image": "ghcr.io/your-org/teamwp-api:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 3000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "ARCHITECTURE_DB_BACKEND", "value": "postgres" },
+        { "name": "ARCHITECTURE_QUEUE_BACKEND", "value": "redis" }
+      ],
+      "secrets": [
+        { "name": "ARCHITECTURE_POSTGRES_DSN", "valueFrom": "arn:aws:ssm:region:acct:parameter/teamwp/postgres_dsn" },
+        { "name": "ARCHITECTURE_REDIS_URL", "valueFrom": "arn:aws:ssm:region:acct:parameter/teamwp/redis_url" }
+      ],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/api/projects')\" || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 20
+      }
+    }
+  ]
+}
+

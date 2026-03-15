@@ -5,11 +5,16 @@ FastAPI 대시보드 서버. GET /, GET /api/status, POST /api/run.
 """
 
 import os
+import asyncio
+import threading
+import time
 from pathlib import Path
+from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 # 프로젝트 루트 기준으로 import (server는 dashboard/ 안에 있음)
@@ -20,12 +25,128 @@ if str(_root) not in sys.path:
 
 from dashboard_state import get_snapshot, is_running
 from usage_tracking import is_over_limit, reset_usage
+from core.models import AgentRole, Project, TaskSource, TaskStatus
+from core.orchestrator import ManagerOrchestrator
+from core.repository import ArchitectureRepository
+from core.queue import create_task_queue
+from core.worker import WorkerRuntime
 
 app = FastAPI(title="Agent Team Dashboard")
+
+_cors_origins = [
+    o.strip()
+    for o in os.getenv(
+        "ARCHITECTURE_CORS_ORIGINS",
+        "http://127.0.0.1:3001,http://localhost:3001,http://127.0.0.1:3000,http://localhost:3000",
+    ).split(",")
+    if o.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+_db_backend = os.getenv("ARCHITECTURE_DB_BACKEND", "sqlite")
+_db_path = os.getenv("ARCHITECTURE_DB_PATH", ".agent_architecture.db")
+_postgres_dsn = os.getenv("ARCHITECTURE_POSTGRES_DSN")
+_repo = ArchitectureRepository(
+    db_path=_db_path,
+    backend=_db_backend,
+    postgres_dsn=_postgres_dsn,
+)
+_orchestrator = ManagerOrchestrator(_repo)
+_task_queue = create_task_queue()
+_worker_runtime = WorkerRuntime(_task_queue, _orchestrator)
+_api_key = os.getenv("ARCHITECTURE_API_KEY", "").strip()
+
+_metrics_lock = threading.Lock()
+_metrics = {
+    "http_requests_total": 0,
+    "ws_connections_total": 0,
+    "ws_active_connections": 0,
+    "task_executions_total": 0,
+    "task_execution_failed_total": 0,
+}
 
 # POST /api/run 에서 사용할 요청 바디 (실행은 main에서 래핑된 함수 호출)
 class RunRequest(BaseModel):
     issue: int
+
+
+class ProjectCreateRequest(BaseModel):
+    project_id: str
+    name: str
+    repo_url: str
+    default_branch: str = "master"
+    tech_stack: str = ""
+
+
+class TaskCreateRequest(BaseModel):
+    project_id: str
+    title: str
+    description: str
+    source: Literal["github", "cli", "discord", "scheduler"] = "cli"
+    auto_enqueue: bool = False
+
+
+class TaskStatusUpdateRequest(BaseModel):
+    status: Literal["pending", "in_progress", "done", "failed"]
+
+
+class ConversationCreateRequest(BaseModel):
+    agent_role: Literal["pm", "cto", "developer", "qa", "architect", "marketing", "orchestrator"]
+    content: str
+    token_usage: int = 0
+
+
+class WorkerRunOnceRequest(BaseModel):
+    timeout_seconds: int = 1
+
+
+def _metric_inc(key: str, delta: int = 1):
+    with _metrics_lock:
+        _metrics[key] = int(_metrics.get(key, 0)) + delta
+
+
+def _require_api_key(request: Request):
+    if not _api_key:
+        return
+    provided = request.headers.get("x-api-key", "").strip()
+    if provided != _api_key:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+
+def _queue_ready_check() -> tuple[bool, str]:
+    try:
+        client = getattr(_task_queue, "client", None)
+        if client is not None and hasattr(client, "ping"):
+            client.ping()
+        return True, "ok"
+    except Exception as e:
+        return False, str(e)
+
+
+def _build_task_feed_payload(task_id: str) -> dict:
+    task = _repo.get_task(task_id)
+    if not task:
+        return {"task": None, "conversations": []}
+    messages = _repo.list_conversations(task_id)
+    return {
+        "task": task.to_dict(),
+        "conversations": [m.to_dict() for m in messages],
+    }
+
+
+@app.middleware("http")
+async def track_http_metrics(request: Request, call_next):
+    started = time.perf_counter()
+    response = await call_next(request)
+    _metric_inc("http_requests_total")
+    response.headers["X-Response-Time-Ms"] = f"{(time.perf_counter() - started) * 1000:.2f}"
+    return response
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -49,8 +170,245 @@ def api_status():
     return snapshot
 
 
+@app.get("/api/health")
+def api_health():
+    db_profile = _repo.get_runtime_profile()
+    return {
+        "ok": True,
+        "time": time.time(),
+        "db_configured_backend": db_profile["configured_backend"],
+        "db_active_backend": db_profile["active_backend"],
+        "db_fallback_active": db_profile["fallback_active"],
+        "queue_backend": os.getenv("ARCHITECTURE_QUEUE_BACKEND", "local"),
+    }
+
+
+@app.get("/api/ready")
+def api_ready():
+    db_ok = True
+    db_error = ""
+    try:
+        _repo.list_projects()
+    except Exception as e:
+        db_ok = False
+        db_error = str(e)
+
+    queue_ok, queue_error = _queue_ready_check()
+    ok = db_ok and queue_ok
+    payload = {
+        "ok": ok,
+        "db_ok": db_ok,
+        "queue_ok": queue_ok,
+        "db_error": db_error,
+        "queue_error": queue_error if not queue_ok else "",
+        "db_profile": _repo.get_runtime_profile(),
+    }
+    if not ok:
+        raise HTTPException(status_code=503, detail=payload)
+    return payload
+
+
+@app.get("/api/metrics")
+def api_metrics():
+    with _metrics_lock:
+        data = dict(_metrics)
+    db_profile = _repo.get_runtime_profile()
+    data["db_configured_backend"] = db_profile["configured_backend"]
+    data["db_active_backend"] = db_profile["active_backend"]
+    data["db_fallback_active"] = db_profile["fallback_active"]
+    data["queue_backend"] = os.getenv("ARCHITECTURE_QUEUE_BACKEND", "local")
+    return data
+
+
+@app.get("/api/runtime/profile")
+def api_runtime_profile():
+    db_profile = _repo.get_runtime_profile()
+    return {
+        "db": db_profile,
+        "queue_backend": os.getenv("ARCHITECTURE_QUEUE_BACKEND", "local"),
+        "api_key_enabled": bool(_api_key),
+        "cors_origins": list(_cors_origins),
+    }
+
+
+@app.get("/api/projects")
+def api_list_projects():
+    return {"projects": [p.to_dict() for p in _repo.list_projects()]}
+
+
+@app.post("/api/projects")
+def api_upsert_project(body: ProjectCreateRequest, request: Request):
+    _require_api_key(request)
+    project = Project(
+        project_id=body.project_id,
+        name=body.name,
+        repo_url=body.repo_url,
+        default_branch=body.default_branch,
+        tech_stack=body.tech_stack,
+    )
+    stored = _repo.upsert_project(project)
+    return {"project": stored.to_dict()}
+
+
+@app.get("/api/projects/{project_id}/tasks")
+def api_list_project_tasks(project_id: str):
+    project = _repo.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    tasks = _repo.list_tasks(project_id=project_id)
+    return {"tasks": [t.to_dict() for t in tasks]}
+
+
+@app.post("/api/tasks")
+def api_create_task(body: TaskCreateRequest, request: Request):
+    _require_api_key(request)
+    project = _repo.get_project(body.project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    result = _orchestrator.create_task_with_plan(
+        project_id=body.project_id,
+        title=body.title,
+        description=body.description,
+        source=TaskSource(body.source),
+    )
+    payload = result.to_dict()
+    if body.auto_enqueue:
+        job_id = _task_queue.enqueue(
+            {
+                "task_id": result.task.task_id,
+                "project_id": result.task.project_id,
+            }
+        )
+        payload["queue"] = {"enqueued": True, "job_id": job_id}
+    else:
+        payload["queue"] = {"enqueued": False}
+    return payload
+
+
+@app.patch("/api/tasks/{task_id}/status")
+def api_update_task_status(task_id: str, body: TaskStatusUpdateRequest, request: Request):
+    _require_api_key(request)
+    updated = _orchestrator.update_status(task_id, TaskStatus(body.status))
+    if not updated:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"task": updated.to_dict()}
+
+
+@app.get("/api/tasks/{task_id}/conversations")
+def api_list_conversations(task_id: str):
+    task = _repo.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    messages = _repo.list_conversations(task_id)
+    return {"messages": [m.to_dict() for m in messages]}
+
+
+@app.get("/api/tasks/{task_id}/feed")
+def api_task_feed(task_id: str):
+    payload = _build_task_feed_payload(task_id)
+    if payload["task"] is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return payload
+
+
+@app.post("/api/tasks/{task_id}/conversations")
+def api_add_conversation(task_id: str, body: ConversationCreateRequest, request: Request):
+    _require_api_key(request)
+    task = _repo.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    message = _orchestrator.add_message(
+        task_id=task_id,
+        role=AgentRole(body.agent_role),
+        content=body.content,
+        token_usage=body.token_usage,
+    )
+    return {"message": message.to_dict()}
+
+
+@app.post("/api/tasks/{task_id}/enqueue")
+def api_enqueue_task(task_id: str, request: Request):
+    _require_api_key(request)
+    task = _repo.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    job_id = _task_queue.enqueue({"task_id": task_id, "project_id": task.project_id})
+    return {"ok": True, "task_id": task_id, "job_id": job_id}
+
+
+@app.post("/api/workers/run-once")
+def api_worker_run_once(body: WorkerRunOnceRequest, request: Request):
+    _require_api_key(request)
+    result = _worker_runtime.run_once(timeout_seconds=body.timeout_seconds)
+    if result.task_id and result.ok:
+        _metric_inc("task_executions_total")
+    if result.task_id and not result.ok:
+        _metric_inc("task_execution_failed_total")
+    return {
+        "ok": result.ok,
+        "task_id": result.task_id,
+        "message": result.message,
+        "payload": result.payload,
+    }
+
+
+@app.websocket("/ws/tasks/{task_id}")
+async def ws_task_feed(websocket: WebSocket, task_id: str):
+    if _api_key:
+        provided = websocket.query_params.get("api_key", "").strip()
+        if provided != _api_key:
+            await websocket.accept()
+            await websocket.send_json({"type": "error", "detail": "Invalid API key"})
+            await websocket.close(code=1008)
+            return
+    await websocket.accept()
+    _metric_inc("ws_connections_total")
+    _metric_inc("ws_active_connections")
+    try:
+        if _repo.get_task(task_id) is None:
+            await websocket.send_json({"type": "error", "detail": "Task not found"})
+            await websocket.close(code=1008)
+            return
+
+        last_signature = ""
+        while True:
+            payload = _build_task_feed_payload(task_id)
+            task = payload.get("task")
+            conversations = payload.get("conversations", [])
+            if task is None:
+                await websocket.send_json({"type": "error", "detail": "Task deleted"})
+                await websocket.close(code=1008)
+                return
+
+            latest_message_id = conversations[-1]["message_id"] if conversations else ""
+            signature = f"{task['status']}|{len(conversations)}|{latest_message_id}"
+            if signature != last_signature:
+                await websocket.send_json(
+                    {
+                        "type": "task_feed",
+                        "task_id": task_id,
+                        "data": payload,
+                    }
+                )
+                last_signature = signature
+
+            try:
+                client_message = await asyncio.wait_for(websocket.receive_text(), timeout=1.0)
+                if client_message.strip().lower() in {"close", "disconnect"}:
+                    await websocket.close(code=1000)
+                    return
+            except asyncio.TimeoutError:
+                pass
+            await asyncio.sleep(0.5)
+    except WebSocketDisconnect:
+        return
+    finally:
+        _metric_inc("ws_active_connections", -1)
+
+
 @app.post("/api/run")
-def api_run(body: RunRequest):
+def api_run(body: RunRequest, request: Request):
+    _require_api_key(request)
     """단일 이슈 실행 트리거. 이미 실행 중이면 409. 사용량 상한 초과 시 403."""
     if is_running():
         raise HTTPException(status_code=409, detail="Already running")
@@ -67,7 +425,8 @@ def api_run(body: RunRequest):
 
 
 @app.post("/api/usage/reset")
-def api_usage_reset():
+def api_usage_reset(request: Request):
+    _require_api_key(request)
     """사용량 초기화 (토큰/호출 횟수 0으로)."""
     reset_usage()
     return {"ok": True}
