@@ -1,0 +1,15 @@
+.git
+.gitignore
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+.env
+.env.local
+.cursor/
+dashboard-next/.next/
+dashboard-next/node_modules/
+node_modules/
+Agent_Conversaion_Team.md
+

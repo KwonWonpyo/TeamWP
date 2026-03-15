@@ -1,0 +1,25 @@
+{
+  "family": "teamwp-worker",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "1024",
+  "memory": "2048",
+  "containerDefinitions": [
+    {
+      "name": "worker",
+      "image": "ghcr.io/your-org/teamwp-worker:latest",
+      "essential": true,
+      "environment": [
+        { "name": "ARCHITECTURE_DB_BACKEND", "value": "postgres" },
+        { "name": "ARCHITECTURE_QUEUE_BACKEND", "value": "redis" },
+        { "name": "WORKER_POLL_INTERVAL_SECONDS", "value": "0.3" },
+        { "name": "WORKER_DEQUEUE_TIMEOUT_SECONDS", "value": "1" }
+      ],
+      "secrets": [
+        { "name": "ARCHITECTURE_POSTGRES_DSN", "valueFrom": "arn:aws:ssm:region:acct:parameter/teamwp/postgres_dsn" },
+        { "name": "ARCHITECTURE_REDIS_URL", "valueFrom": "arn:aws:ssm:region:acct:parameter/teamwp/redis_url" }
+      ]
+    }
+  ]
+}
+
