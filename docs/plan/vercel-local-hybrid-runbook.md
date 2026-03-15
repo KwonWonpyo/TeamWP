@@ -52,6 +52,9 @@ Vercel 환경 변수(프로젝트 Settings → Environment Variables):
 > 브라우저에서 직접 API/WS에 붙기 때문에, 로컬 백엔드가 외부에서 접근 가능해야 한다.
 > (예: cloudflared tunnel, ngrok, tailscale funnel 등)
 
+배포 직전 점검은 `docs/plan/vercel-preflight-checklist.md`와
+`scripts/vercel_preflight_check.sh`를 사용한다.
+
 ## 장애 시 운영 전략
 
 - Supabase 장애 또는 네트워크 이슈 시:

@@ -185,6 +185,7 @@ docker compose -f infra/docker-compose.phase4.yml up --build
 
 실행 런북: `docs/plan/vercel-local-hybrid-runbook.md`  
 프로파일 예시: `ops/profiles/vercel_local_backend_hybrid.env.example`
+배포 전 체크리스트: `docs/plan/vercel-preflight-checklist.md`
 
 ## 이슈 감시
 
