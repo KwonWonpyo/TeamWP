@@ -34,12 +34,14 @@ class ManagerOrchestrator:
         title: str,
         description: str,
         source: TaskSource,
+        issue_number: int | None = None,
     ) -> TaskPlanResult:
         task = self.repo.create_task(
             project_id=project_id,
             title=title,
             description=description,
             source=source,
+            issue_number=issue_number,
         )
         steps = self._build_default_plan()
         self.repo.add_conversation(
@@ -49,7 +51,7 @@ class ManagerOrchestrator:
         )
         self.repo.add_conversation(
             task_id=task.task_id,
-            agent_role=AgentRole.PM,
+            agent_role=AgentRole.VICE,
             content="요구사항 분석 및 스펙 초안 작성 시작",
         )
         return TaskPlanResult(task=task, steps=steps)
@@ -102,32 +104,32 @@ class ManagerOrchestrator:
         return [
             WorkflowStep(
                 sequence=1,
-                role=AgentRole.PM,
+                role=AgentRole.VICE,
                 task_type=TaskType.PLAN_TASK,
-                description="이슈 분석 및 기술 스펙 정의",
+                description="이슈 분석 및 기술 스펙 정의 + 팀 구성",
             ),
             WorkflowStep(
                 sequence=2,
-                role=AgentRole.CTO,
+                role=AgentRole.AZURE,
                 task_type=TaskType.REVIEW_TASK,
-                description="아키텍처/리스크 검토 및 구현 전략 확정",
+                description="UI 디자인 기획 및 퍼블리싱 (해당 시)",
             ),
             WorkflowStep(
                 sequence=3,
-                role=AgentRole.DEVELOPER,
+                role=AgentRole.FLEUR,
                 task_type=TaskType.CODE_TASK,
                 description="코드 구현 및 브랜치 작업 수행",
             ),
             WorkflowStep(
                 sequence=4,
-                role=AgentRole.QA,
-                task_type=TaskType.TEST_TASK,
-                description="테스트/QA 게이트 수행",
+                role=AgentRole.ELSI,
+                task_type=TaskType.REVIEW_TASK,
+                description="기술 선택·설계 비판적 검토 (해당 시)",
             ),
             WorkflowStep(
                 sequence=5,
-                role=AgentRole.MARKETING,
-                task_type=TaskType.PUBLISH_TASK,
-                description="릴리즈 노트/PR 메시지 정리",
+                role=AgentRole.BETHEL,
+                task_type=TaskType.TEST_TASK,
+                description="코드 품질 + 실사용자 관점 최종 검증",
             ),
         ]

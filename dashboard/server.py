@@ -4,8 +4,12 @@ dashboard/server.py
 FastAPI 대시보드 서버. GET /, GET /api/status, POST /api/run.
 """
 
+import hashlib
+import hmac
+import json
 import os
 import asyncio
+import re
 import threading
 import time
 from pathlib import Path
@@ -30,6 +34,7 @@ from core.orchestrator import ManagerOrchestrator
 from core.repository import ArchitectureRepository
 from core.queue import create_task_queue
 from core.worker import WorkerRuntime
+from core.channel import DashboardAdapter
 
 app = FastAPI(title="Agent Team Dashboard")
 
@@ -60,6 +65,7 @@ _repo = ArchitectureRepository(
 _orchestrator = ManagerOrchestrator(_repo)
 _task_queue = create_task_queue()
 _worker_runtime = WorkerRuntime(_task_queue, _orchestrator)
+_dashboard_adapter = DashboardAdapter(_repo, _orchestrator, _task_queue)
 _api_key = os.getenv("ARCHITECTURE_API_KEY", "").strip()
 
 _metrics_lock = threading.Lock()
@@ -82,13 +88,20 @@ class ProjectCreateRequest(BaseModel):
     repo_url: str
     default_branch: str = "master"
     tech_stack: str = ""
+    repos: list[str] = []  # workspace repo 목록 (비면 repo_url 단일 항목으로 설정)
+
+
+class InstructionCreateRequest(BaseModel):
+    product_id: str
+    raw_text: str
+    title: str | None = None
 
 
 class TaskCreateRequest(BaseModel):
     project_id: str
     title: str
     description: str
-    source: Literal["github", "cli", "discord", "scheduler"] = "cli"
+    source: Literal["github", "cli", "discord", "scheduler", "dashboard"] = "cli"
     auto_enqueue: bool = False
 
 
@@ -97,7 +110,14 @@ class TaskStatusUpdateRequest(BaseModel):
 
 
 class ConversationCreateRequest(BaseModel):
-    agent_role: Literal["pm", "cto", "developer", "qa", "architect", "marketing", "orchestrator"]
+    agent_role: Literal[
+        # 현재 팀
+        "vice", "azure", "fleur", "elsi", "bethel",
+        # 시스템
+        "orchestrator",
+        # 레거시 (하위 호환)
+        "pm", "cto", "developer", "qa", "architect", "marketing",
+    ]
     content: str
     token_usage: int = 0
 
@@ -246,8 +266,51 @@ def api_upsert_project(body: ProjectCreateRequest, request: Request):
         default_branch=body.default_branch,
         tech_stack=body.tech_stack,
     )
+    # workspace repo 목록: 명시하면 그대로, 없으면 repo_url 단일 항목
+    repos = body.repos if body.repos else [body.repo_url]
+    project.set_repos(repos)
     stored = _repo.upsert_project(project)
     return {"project": stored.to_dict()}
+
+
+@app.post("/api/instructions")
+def api_create_instruction(body: InstructionCreateRequest, request: Request):
+    """대시보드 채널 지시 제출.
+
+    지시를 받아 Task를 생성하고 Task Queue에 진입시킨다.
+    백그라운드에서 워커를 자동 실행하므로 별도의 run-once 호출이 불필요하다.
+    """
+    _require_api_key(request)
+    project = _repo.get_project(body.product_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Product not found")
+    try:
+        result = _dashboard_adapter.ingest(
+            product_id=body.product_id,
+            raw_text=body.raw_text,
+            title=body.title,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # 워커 자동 실행 (백그라운드 스레드 — CrewAI 실행이 완료될 때까지 진행)
+    def _run_worker():
+        _metric_inc("task_executions_total")
+        try:
+            r = _worker_runtime.run_once(timeout_seconds=2)
+            if r.task_id and not r.ok:
+                _metric_inc("task_execution_failed_total")
+        except Exception:
+            _metric_inc("task_execution_failed_total")
+
+    threading.Thread(target=_run_worker, daemon=True).start()
+
+    return {
+        "instruction_id": result.instruction.instruction_id,
+        "task_id": result.task.task_id,
+        "job_id": result.job_id,
+        "status": result.task.status.value,
+    }
 
 
 @app.get("/api/projects/{project_id}/tasks")
@@ -429,6 +492,66 @@ def api_usage_reset(request: Request):
     _require_api_key(request)
     """사용량 초기화 (토큰/호출 횟수 0으로)."""
     reset_usage()
+    return {"ok": True}
+
+
+@app.post("/webhooks/github")
+async def webhook_github(request: Request):
+    """GitHub Pull Request 이벤트 수신.
+
+    PR이 머지되면 연결된 Task 상태를 done으로 업데이트하고 Discord에 알림을 전송한다.
+    GITHUB_WEBHOOK_SECRET 환경변수가 설정되어 있으면 서명을 검증한다.
+    """
+    # 서명 검증 (GITHUB_WEBHOOK_SECRET 설정 시)
+    secret = os.getenv("GITHUB_WEBHOOK_SECRET", "").strip()
+    if secret:
+        sig_header = request.headers.get("X-Hub-Signature-256", "")
+        body = await request.body()
+        expected = "sha256=" + hmac.new(
+            secret.encode(), body, hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(sig_header, expected):
+            raise HTTPException(status_code=401, detail="Invalid webhook signature")
+        payload = json.loads(body)
+    else:
+        payload = await request.json()
+
+    event = request.headers.get("X-GitHub-Event", "")
+    if event != "pull_request":
+        return {"ok": True, "skipped": True}
+
+    action = payload.get("action", "")
+    pr = payload.get("pull_request", {})
+    if action != "closed" or not pr.get("merged"):
+        return {"ok": True, "skipped": True}
+
+    pr_url = pr.get("html_url", "")
+    pr_title = pr.get("title", "")
+
+    # 브랜치명 feature/issue-{N} 또는 design/issue-{N} 에서 이슈 번호 추출
+    branch = pr.get("head", {}).get("ref", "")
+    issue_match = re.search(r"issue-(\d+)", branch)
+    if not issue_match:
+        # PR body에서 Closes/Fixes #N 패턴 검색
+        body_text = pr.get("body") or ""
+        issue_match = re.search(r"(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)", body_text, re.IGNORECASE)
+
+    if issue_match:
+        issue_number = int(issue_match.group(1))
+        task = _repo.find_task_by_issue_number(issue_number)
+        if task and task.status not in (TaskStatus.DONE, TaskStatus.FAILED):
+            _orchestrator.update_status(task.task_id, TaskStatus.DONE)
+            _repo.add_conversation(
+                task.task_id,
+                AgentRole.ORCHESTRATOR,
+                f"PR 머지 완료: {pr_url}",
+            )
+            try:
+                from usage_tracking import send_discord_task_merged
+                send_discord_task_merged(pr_url, task.title)
+            except Exception:
+                pass
+
     return {"ok": True}
 
 

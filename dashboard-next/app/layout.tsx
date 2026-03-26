@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Agent Worker Dashboard",
-  description: "Phase 3 frontend for task timeline and live conversation feed",
+  title: "TeamWP Dashboard",
+  description: "AI 에이전트 팀 지시 센터 — 제품 관리, 지시 입력, 실시간 대화 피드",
 };
 
 export default function RootLayout({

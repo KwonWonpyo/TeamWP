@@ -13,7 +13,9 @@ agents/agents.py
 """
 
 import os
-from crewai import Agent, LLM
+from crewai import Agent
+from core.llm_config import get_llm
+from core.models import AgentRole
 from tools.github_tools import (
     ListIssuesTool,
     GetIssueTool,
@@ -43,13 +45,13 @@ def _optional_tools():
     return extra
 
 # ─────────────────────────────────────────────
-# LLM 설정 (.env의 OPENAI_API_KEY 사용)
-# Anthropic 쓰려면 "anthropic/claude-3-5-sonnet-20241022" + ANTHROPIC_API_KEY
-# 모델은 .env의 OPENAI_MODEL_* 환경 변수로 재정의 가능
+# LLM 설정 (core/llm_config.py의 환경변수 기반 선택)
+# 역할별: AGENT_LLM_VICE, AGENT_LLM_FLEUR, AGENT_LLM_AZURE, AGENT_LLM_ELSI, AGENT_LLM_BETHEL
+# Claude 전환: AGENT_LLM_FLEUR=anthropic/claude-opus-4-6 등으로 변경
 # ─────────────────────────────────────────────
-llm_strong = LLM(model=os.getenv("OPENAI_MODEL_STRONG", "openai/gpt-4o"))       # 판단·설계: 바이스, 아주르, 플뢰르
-llm_fast   = LLM(model=os.getenv("OPENAI_MODEL_FAST",   "openai/gpt-4o-mini"))  # 체크리스트·검토: 베델
-llm_reason = LLM(model=os.getenv("OPENAI_MODEL_REASON", "openai/gpt-4o"))       # 논리 추론: 엘시 (o1-mini로 교체 가능)
+llm_strong = get_llm(AgentRole.FLEUR)   # 판단·설계: 바이스, 아주르, 플뢰르 (AGENT_LLM_FLEUR)
+llm_fast   = get_llm(AgentRole.BETHEL)  # 체크리스트·검토: 베델 (AGENT_LLM_BETHEL)
+llm_reason = get_llm(AgentRole.ELSI)    # 논리 추론: 엘시 (AGENT_LLM_ELSI)
 
 
 # ─────────────────────────────────────────────

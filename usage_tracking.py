@@ -130,6 +130,55 @@ def _estimate_cost(input_tokens: int, output_tokens: int) -> float:
     return (input_tokens / 1_000_000) * 2.5 + (output_tokens / 1_000_000) * 10.0
 
 
+def send_discord_pr_created(
+    issue_number: int | None,
+    pr_url: str,
+    title: str,
+) -> None:
+    """PR 생성 시 Discord 채널에 알림 전송. DISCORD_BOT_TOKEN, DISCORD_CHANNEL_ID 필요."""
+    try:
+        import requests as _req
+    except ImportError:
+        return
+    token = os.getenv("DISCORD_BOT_TOKEN")
+    channel_id = os.getenv("DISCORD_CHANNEL_ID")
+    if not token or not channel_id:
+        return
+    issue_ref = f" (이슈 #{issue_number})" if issue_number else ""
+    body = f"🔀 **PR 생성됨{issue_ref}**: {title}\n{pr_url}\n리뷰 후 머지해 주세요."
+    try:
+        _req.post(
+            f"https://discord.com/api/v10/channels/{channel_id}/messages",
+            headers={"Authorization": f"Bot {token}", "Content-Type": "application/json"},
+            json={"content": body[:2000]},
+            timeout=10,
+        )
+    except Exception:
+        pass
+
+
+def send_discord_task_merged(pr_url: str, title: str) -> None:
+    """PR 머지 완료 시 Discord 채널에 알림 전송."""
+    try:
+        import requests as _req
+    except ImportError:
+        return
+    token = os.getenv("DISCORD_BOT_TOKEN")
+    channel_id = os.getenv("DISCORD_CHANNEL_ID")
+    if not token or not channel_id:
+        return
+    body = f"✅ **PR 머지 완료**: {title}\n{pr_url}"
+    try:
+        _req.post(
+            f"https://discord.com/api/v10/channels/{channel_id}/messages",
+            headers={"Authorization": f"Bot {token}", "Content-Type": "application/json"},
+            json={"content": body[:2000]},
+            timeout=10,
+        )
+    except Exception:
+        pass
+
+
 def send_discord_run_failed(issue_number: int, error_message: str) -> None:
     """이슈 처리 중 LLM/실행 실패 시 Discord 채널에 알림 전송. DISCORD_BOT_TOKEN, DISCORD_CHANNEL_ID 필요."""
     try:

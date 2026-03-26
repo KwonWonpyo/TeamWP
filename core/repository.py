@@ -30,9 +30,11 @@ class RepositoryBackend(Protocol):
         title: str,
         description: str,
         source: TaskSource,
+        issue_number: int | None = None,
     ) -> WorkTask: ...
     def list_tasks(self, project_id: str | None = None) -> list[WorkTask]: ...
     def get_task(self, task_id: str) -> WorkTask | None: ...
+    def find_task_by_issue_number(self, issue_number: int) -> WorkTask | None: ...
     def update_task_status(self, task_id: str, status: TaskStatus) -> WorkTask | None: ...
     def add_conversation(
         self,
@@ -68,7 +70,8 @@ class SqliteRepository:
                         name TEXT NOT NULL,
                         repo_url TEXT NOT NULL,
                         default_branch TEXT NOT NULL,
-                        tech_stack TEXT NOT NULL
+                        tech_stack TEXT NOT NULL,
+                        repos_json TEXT NOT NULL DEFAULT ''
                     );
 
                     CREATE TABLE IF NOT EXISTS tasks (
@@ -79,6 +82,7 @@ class SqliteRepository:
                         source TEXT NOT NULL,
                         status TEXT NOT NULL,
                         created_at TEXT NOT NULL,
+                        issue_number INTEGER,
                         FOREIGN KEY(project_id) REFERENCES projects(project_id)
                     );
 
@@ -93,6 +97,15 @@ class SqliteRepository:
                     );
                     """
                 )
+                # Migration: add columns to existing databases
+                for sql in [
+                    "ALTER TABLE projects ADD COLUMN repos_json TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE tasks ADD COLUMN issue_number INTEGER",
+                ]:
+                    try:
+                        conn.execute(sql)
+                    except sqlite3.OperationalError:
+                        pass  # Column already exists
                 conn.commit()
 
     # ---------- projects ----------
@@ -101,13 +114,14 @@ class SqliteRepository:
             with self._connect() as conn:
                 conn.execute(
                     """
-                    INSERT INTO projects (project_id, name, repo_url, default_branch, tech_stack)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO projects (project_id, name, repo_url, default_branch, tech_stack, repos_json)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     ON CONFLICT(project_id) DO UPDATE SET
                         name=excluded.name,
                         repo_url=excluded.repo_url,
                         default_branch=excluded.default_branch,
-                        tech_stack=excluded.tech_stack
+                        tech_stack=excluded.tech_stack,
+                        repos_json=excluded.repos_json
                     """,
                     (
                         project.project_id,
@@ -115,6 +129,7 @@ class SqliteRepository:
                         project.repo_url,
                         project.default_branch,
                         project.tech_stack,
+                        project.repos_json,
                     ),
                 )
                 conn.commit()
@@ -124,7 +139,7 @@ class SqliteRepository:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT project_id, name, repo_url, default_branch, tech_stack
+                SELECT project_id, name, repo_url, default_branch, tech_stack, repos_json
                 FROM projects
                 ORDER BY name ASC
                 """
@@ -135,7 +150,7 @@ class SqliteRepository:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT project_id, name, repo_url, default_branch, tech_stack
+                SELECT project_id, name, repo_url, default_branch, tech_stack, repos_json
                 FROM projects
                 WHERE project_id = ?
                 """,
@@ -150,6 +165,7 @@ class SqliteRepository:
         title: str,
         description: str,
         source: TaskSource,
+        issue_number: int | None = None,
     ) -> WorkTask:
         task = WorkTask(
             task_id=str(uuid.uuid4()),
@@ -159,13 +175,14 @@ class SqliteRepository:
             source=source,
             status=TaskStatus.PENDING,
             created_at=utc_now_iso(),
+            issue_number=issue_number,
         )
         with self._lock:
             with self._connect() as conn:
                 conn.execute(
                     """
-                    INSERT INTO tasks (task_id, project_id, title, description, source, status, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO tasks (task_id, project_id, title, description, source, status, created_at, issue_number)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         task.task_id,
@@ -175,6 +192,7 @@ class SqliteRepository:
                         task.source.value,
                         task.status.value,
                         task.created_at,
+                        task.issue_number,
                     ),
                 )
                 conn.commit()
@@ -182,7 +200,7 @@ class SqliteRepository:
 
     def list_tasks(self, project_id: str | None = None) -> list[WorkTask]:
         query = """
-            SELECT task_id, project_id, title, description, source, status, created_at
+            SELECT task_id, project_id, title, description, source, status, created_at, issue_number
             FROM tasks
         """
         params: tuple = ()
@@ -199,11 +217,25 @@ class SqliteRepository:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT task_id, project_id, title, description, source, status, created_at
+                SELECT task_id, project_id, title, description, source, status, created_at, issue_number
                 FROM tasks
                 WHERE task_id = ?
                 """,
                 (task_id,),
+            ).fetchone()
+        return self._row_to_task(row) if row else None
+
+    def find_task_by_issue_number(self, issue_number: int) -> WorkTask | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT task_id, project_id, title, description, source, status, created_at, issue_number
+                FROM tasks
+                WHERE issue_number = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (issue_number,),
             ).fetchone()
         return self._row_to_task(row) if row else None
 
@@ -274,6 +306,7 @@ class SqliteRepository:
             repo_url=row["repo_url"],
             default_branch=row["default_branch"],
             tech_stack=row["tech_stack"],
+            repos_json=row["repos_json"] or "",
         )
 
     @staticmethod
@@ -286,6 +319,7 @@ class SqliteRepository:
             source=TaskSource(row["source"]),
             status=TaskStatus(row["status"]),
             created_at=row["created_at"],
+            issue_number=row["issue_number"],
         )
 
     @staticmethod
@@ -330,7 +364,8 @@ class PostgresRepository:
                             name TEXT NOT NULL,
                             repo_url TEXT NOT NULL,
                             default_branch TEXT NOT NULL,
-                            tech_stack TEXT NOT NULL
+                            tech_stack TEXT NOT NULL,
+                            repos_json TEXT NOT NULL DEFAULT ''
                         )
                         """
                     )
@@ -343,7 +378,8 @@ class PostgresRepository:
                             description TEXT NOT NULL,
                             source TEXT NOT NULL,
                             status TEXT NOT NULL,
-                            created_at TEXT NOT NULL
+                            created_at TEXT NOT NULL,
+                            issue_number INTEGER
                         )
                         """
                     )
@@ -359,6 +395,15 @@ class PostgresRepository:
                         )
                         """
                     )
+                    # Migration: add columns to existing databases
+                    for sql in [
+                        "ALTER TABLE projects ADD COLUMN IF NOT EXISTS repos_json TEXT NOT NULL DEFAULT ''",
+                        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS issue_number INTEGER",
+                    ]:
+                        try:
+                            cur.execute(sql)
+                        except Exception:
+                            pass
                 conn.commit()
 
     # ---------- projects ----------
@@ -368,13 +413,14 @@ class PostgresRepository:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        INSERT INTO projects (project_id, name, repo_url, default_branch, tech_stack)
-                        VALUES (%s, %s, %s, %s, %s)
+                        INSERT INTO projects (project_id, name, repo_url, default_branch, tech_stack, repos_json)
+                        VALUES (%s, %s, %s, %s, %s, %s)
                         ON CONFLICT(project_id) DO UPDATE SET
                             name=EXCLUDED.name,
                             repo_url=EXCLUDED.repo_url,
                             default_branch=EXCLUDED.default_branch,
-                            tech_stack=EXCLUDED.tech_stack
+                            tech_stack=EXCLUDED.tech_stack,
+                            repos_json=EXCLUDED.repos_json
                         """,
                         (
                             project.project_id,
@@ -382,6 +428,7 @@ class PostgresRepository:
                             project.repo_url,
                             project.default_branch,
                             project.tech_stack,
+                            project.repos_json,
                         ),
                     )
                 conn.commit()
@@ -392,7 +439,7 @@ class PostgresRepository:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT project_id, name, repo_url, default_branch, tech_stack
+                    SELECT project_id, name, repo_url, default_branch, tech_stack, repos_json
                     FROM projects
                     ORDER BY name ASC
                     """
@@ -405,7 +452,7 @@ class PostgresRepository:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT project_id, name, repo_url, default_branch, tech_stack
+                    SELECT project_id, name, repo_url, default_branch, tech_stack, repos_json
                     FROM projects
                     WHERE project_id = %s
                     """,
@@ -421,6 +468,7 @@ class PostgresRepository:
         title: str,
         description: str,
         source: TaskSource,
+        issue_number: int | None = None,
     ) -> WorkTask:
         task = WorkTask(
             task_id=str(uuid.uuid4()),
@@ -430,14 +478,15 @@ class PostgresRepository:
             source=source,
             status=TaskStatus.PENDING,
             created_at=utc_now_iso(),
+            issue_number=issue_number,
         )
         with self._lock:
             with self._connect() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        INSERT INTO tasks (task_id, project_id, title, description, source, status, created_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        INSERT INTO tasks (task_id, project_id, title, description, source, status, created_at, issue_number)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                         """,
                         (
                             task.task_id,
@@ -447,6 +496,7 @@ class PostgresRepository:
                             task.source.value,
                             task.status.value,
                             task.created_at,
+                            task.issue_number,
                         ),
                     )
                 conn.commit()
@@ -454,7 +504,7 @@ class PostgresRepository:
 
     def list_tasks(self, project_id: str | None = None) -> list[WorkTask]:
         query = """
-            SELECT task_id, project_id, title, description, source, status, created_at
+            SELECT task_id, project_id, title, description, source, status, created_at, issue_number
             FROM tasks
         """
         params: tuple = ()
@@ -474,11 +524,27 @@ class PostgresRepository:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT task_id, project_id, title, description, source, status, created_at
+                    SELECT task_id, project_id, title, description, source, status, created_at, issue_number
                     FROM tasks
                     WHERE task_id = %s
                     """,
                     (task_id,),
+                )
+                row = cur.fetchone()
+        return self._row_to_task(row) if row else None
+
+    def find_task_by_issue_number(self, issue_number: int) -> WorkTask | None:
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT task_id, project_id, title, description, source, status, created_at, issue_number
+                    FROM tasks
+                    WHERE issue_number = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (issue_number,),
                 )
                 row = cur.fetchone()
         return self._row_to_task(row) if row else None
@@ -554,6 +620,7 @@ class PostgresRepository:
             repo_url=row["repo_url"],
             default_branch=row["default_branch"],
             tech_stack=row["tech_stack"],
+            repos_json=row.get("repos_json") or "",
         )
 
     @staticmethod
@@ -566,6 +633,7 @@ class PostgresRepository:
             source=TaskSource(row["source"]),
             status=TaskStatus(row["status"]),
             created_at=row["created_at"],
+            issue_number=row.get("issue_number"),
         )
 
     @staticmethod
@@ -658,14 +726,18 @@ class ArchitectureRepository:
         title: str,
         description: str,
         source: TaskSource,
+        issue_number: int | None = None,
     ) -> WorkTask:
-        return self.backend.create_task(project_id, title, description, source)
+        return self.backend.create_task(project_id, title, description, source, issue_number)
 
     def list_tasks(self, project_id: str | None = None) -> list[WorkTask]:
         return self.backend.list_tasks(project_id)
 
     def get_task(self, task_id: str) -> WorkTask | None:
         return self.backend.get_task(task_id)
+
+    def find_task_by_issue_number(self, issue_number: int) -> WorkTask | None:
+        return self.backend.find_task_by_issue_number(issue_number)
 
     def update_task_status(self, task_id: str, status: TaskStatus) -> WorkTask | None:
         return self.backend.update_task_status(task_id, status)
